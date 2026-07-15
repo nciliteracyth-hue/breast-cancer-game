@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>รู้มั้ย ใครเสี่ยงมะเร็งเต้านม? — 40 ด่าน Solo/Multiplayer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/socket.io/socket.io.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { font-family: 'Prompt', sans-serif; box-sizing: border-box; }
+  body {
+    background-color: #fdf2f8;
+    background-image: radial-gradient(#fbcfe8 1px, transparent 1px);
+    background-size: 20px 20px;
+    min-height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
+  }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .fade-in { animation: fadeIn 0.4s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal-enter { animation: modalFadeIn 0.3s ease-out forwards; }
+  @keyframes modalFadeIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .choice-btn { transition: all 0.2s ease; }
+  .choice-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(236, 72, 153, 0.2);
+  }
+  .choice-btn:disabled { cursor: not-allowed; opacity: 0.65; }
+  .btn-press { transition: all 0.15s ease; }
+  .btn-press:active { transform: scale(0.96); }
+
+  .board-container {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 5 / 7;
+    margin: 0 auto;
+    background-color: rgba(255, 255, 255, 0.85);
+    border-radius: 1.25rem;
+    box-shadow: 0 10px 25px rgba(236, 72, 153, 0.12);
+    border: 4px solid #fbcfe8;
+    overflow: hidden;
+  }
+  .node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.6rem;
+    color: white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    z-index: 5;
+    border: 2px solid white;
+  }
+  .node.start-finish {
+    width: 2.6rem;
+    height: 2.6rem;
+    font-size: 0.85rem;
+    background-color: #be185d;
+  }
+  .node-locked { background-color: #f3f4f6; color: #9ca3af; }
+  .node-done { background-color: #ec4899; }
+  .node-current {
+    box-shadow: 0 0 0 4px rgba(236,72,153,0.35), 0 2px 5px rgba(0,0,0,0.15);
+    animation: pulseNode 1.5s infinite;
+  }
+  @keyframes pulseNode {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50% { transform: translate(-50%, -50%) scale(1.2); }
+  }
+  .avatar-token {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: left 0.7s cubic-bezier(0.34, 1.2, 0.64, 1), top 0.7s cubic-bezier(0.34, 1.2, 0.64, 1);
+    z-index: 10;
+    pointer-events: none;
+  }
+  .avatar-emoji {
+    font-size: 1.1rem;
+    background: white;
+    border-radius: 9999px;
+    width: 1.6rem;
+    height: 1.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    border: 2px solid #ec4899;
+  }
+  .avatar-token.me .avatar-emoji {
+    border-color: #16a34a;
+    box-shadow: 0 0 0 3px rgba(34,197,94,0.35), 0 2px 6px rgba(0,0,0,0.25);
+  }
+  .avatar-name {
+    font-size: 0.5rem;
+    background: rgba(255,255,255,0.95);
+    padding: 0 3px;
+    border-radius: 5px;
+    margin-top: 1px;
+    color: #831843;
+    font-weight: 600;
+    max-width: 50px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .modal-overlay { display: none; }
+  .modal-overlay.active { display: flex; }
+  .correct-anim { animation: yay 0.5s ease; }
+  @keyframes yay {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); background-color: #34d399; color: white; border-color: #34d399; }
+  }
+  .incorrect-anim { animation: shake 0.4s ease; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    50% { transform: translateX(5px); }
+    75% { transform: translateX(-5px); }
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #f9a8d4; border-radius: 4px; }
+  .mode-card { transition: all 0.2s ease; }
+  .mode-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px -6px rgba(236,72,153,0.3); }
+  .mode-card.selected { border-color: #ec4899; background-color: #fdf2f8; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-6 px-4">
+
+  <!-- Header -->
+  <header class="text-center mb-5 w-full max-w-2xl">
+    <div class="inline-block bg-pink-100 text-pink-600 px-4 py-1 rounded-full text-sm font-semibold mb-2">
+      Breast Cancer Awareness 🎀
+    </div>
+    <h1 class="text-xl md:text-3xl font-bold text-gray-800 mb-1">รู้มั้ย <span class="text-pink-600">ใครเสี่ยงมะเร็งเต้านม?</span></h1>
+    <p class="text-gray-600 text-xs md:text-base">40 ด่านความรู้ • เล่นคนเดียวหรือแข่งกับเพื่อนได้สูงสุด 20 คน • ใครถึงเส้นชัยก่อน 5 คนแรกชนะ!</p>
+  </header>
+
+  <!-- JOIN / MODE SELECT SCREEN -->
+  <div id="join-screen" class="screen active fade-in w-full max-w-md">
+    <div class="bg-white rounded-3xl shadow-xl p-7 border-4 border-pink-200 text-center">
+      <div class="text-5xl mb-3">🏁</div>
+      <h2 class="text-lg font-bold text-gray-800 mb-4">เลือกโหมดการเล่น</h2>
+
+      <div class="grid grid-cols-2 gap-3 mb-5">
+        <button type="button" id="mode-solo-btn" onclick="selectMode('solo')"
+          class="mode-card border-2 border-pink-200 rounded-2xl p-4 text-center">
+          <div class="text-3xl mb-1">🧍</div>
+          <div class="font-semibold text-gray-700 text-sm">เล่นคนเดียว</div>
+          <div class="text-gray-400 text-xs mt-1">ผ่านให้ครบ 40 ด่านตามจังหวะตัวเอง</div>
+        </button>
+        <button type="button" id="mode-multi-btn" onclick="selectMode('multi')"
+          class="mode-card border-2 border-pink-200 rounded-2xl p-4 text-center">
+          <div class="text-3xl mb-1">🏆</div>
+          <div class="font-semibold text-gray-700 text-sm">แข่งกับผู้เล่นอื่น</div>
+          <div class="text-gray-400 text-xs mt-1">ร่วมแข่งได้ 1-20 คน แบบเรียลไทม์</div>
+        </button>
+      </div>
+
+      <input id="name-input" type="text" maxlength="20" placeholder="ใส่ชื่อของคุณ..."
+        class="w-full border-2 border-pink-200 rounded-full px-5 py-3 text-center mb-4 focus:outline-none focus:border-pink-400 text-gray-700"/>
+
+      <button id="join-btn" onclick="joinGame()" disabled
+        class="btn-press w-full bg-gray-300 text-white font-semibold py-3 rounded-full shadow-lg transition-colors">
+        เลือกโหมดก่อนเริ่มเกม
+      </button>
+      <p id="join-error" class="text-red-500 text-sm mt-3 hidden"></p>
+      <p id="player-count-label" class="text-gray-400 text-xs mt-4"></p>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="game-screen" class="screen w-full max-w-5xl">
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+
+      <!-- BOARD -->
+      <div class="lg:col-span-3">
+        <div id="board" class="board-container">
+          <svg class="absolute inset-0 w-full h-full pointer-events-none" id="path-svg" style="z-index:1;"></svg>
+        </div>
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs md:text-sm text-pink-600 font-medium">
+          <span id="my-status">ด่านที่ 1 / 40</span>
+          <span id="global-count" class="bg-white px-3 py-1 rounded-full shadow border border-pink-200"></span>
+        </div>
+      </div>
+
+      <!-- SIDEBAR -->
+      <div class="lg:col-span-1 flex flex-col gap-3">
+        <div id="winners-card" class="bg-white rounded-2xl shadow-lg border-2 border-pink-200 p-3">
+          <h3 class="text-pink-600 font-bold text-sm mb-2 flex items-center gap-1">🏆 Hall of Fame</h3>
+          <ol id="winners-list" class="text-xs text-gray-600 space-y-1 min-h-[1.5rem]">
+            <li class="text-gray-400 italic">ยังไม่มีผู้เข้าเส้นชัย</li>
+          </ol>
+        </div>
+        <div id="players-card" class="bg-white rounded-2xl shadow-lg border-2 border-pink-200 p-3 flex-1 overflow-y-auto max-h-72 lg:max-h-[460px]">
+          <h3 class="text-pink-600 font-bold text-sm mb-2 flex items-center gap-1">👥 ผู้เล่น</h3>
+          <div id="player-list" class="space-y-1 text-xs"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- QUESTION MODAL -->
+  <div id="quiz-modal" class="modal-overlay fixed inset-0 bg-gray-900 bg-opacity-50 z-40 items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden modal-enter flex flex-col max-h-[90vh]">
+      <div class="bg-pink-500 text-white p-4 text-center relative shrink-0">
+        <h2 id="modal-title" class="text-lg font-bold"></h2>
+        <p id="modal-category" class="text-xs text-pink-100 mt-0.5"></p>
+        <span id="level-badge" class="absolute right-3 top-3 bg-pink-700 text-xs px-2 py-1 rounded-full"></span>
+      </div>
+
+      <div class="p-6 overflow-y-auto">
+        <div class="bg-pink-50 rounded-xl p-4 mb-5 border border-pink-100 flex items-start gap-4">
+          <div id="character-avatar" class="text-3xl bg-white w-14 h-14 rounded-full flex items-center justify-center shadow-sm shrink-0"></div>
+          <div>
+            <h3 id="character-name" class="font-bold text-gray-800 text-base"></h3>
+            <p id="character-desc" class="text-sm text-gray-600 mt-1"></p>
+          </div>
+        </div>
+
+        <p id="question-text" class="text-gray-800 font-medium mb-4 text-center"></p>
+
+        <div id="choices-container" class="space-y-3"></div>
+
+        <p id="penalty-msg" class="text-center text-red-500 text-sm font-semibold mt-4 hidden"></p>
+
+        <div id="feedback-section" class="mt-5 hidden">
+          <div id="feedback-icon" class="text-3xl text-center mb-2"></div>
+          <h4 id="feedback-title" class="text-center font-bold text-lg mb-2"></h4>
+          <p id="feedback-text" class="text-sm text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100"></p>
+          <button id="next-btn" onclick="closeFeedback()" class="w-full mt-4 bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 rounded-xl transition-colors">
+            ไปต่อ
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME OVER / HALL OF FAME MODAL -->
+  <div id="gameover-modal" class="modal-overlay fixed inset-0 bg-black/60 z-[60] items-center justify-center p-4">
+    <div class="modal-enter bg-white rounded-3xl shadow-2xl p-7 md:p-9 max-w-lg w-full text-center max-h-[90vh] overflow-y-auto">
+      <div id="gameover-emoji" class="text-6xl mb-2">🎉🎗️</div>
+      <h2 id="gameover-title" class="text-2xl font-bold text-pink-600 mb-4"></h2>
+      <ol id="final-winners-list" class="text-left space-y-2 mb-5"></ol>
+      <div class="bg-pink-50 rounded-2xl p-4 mb-6 text-left">
+        <p id="final-message" class="text-gray-700 text-sm leading-relaxed"></p>
+      </div>
+      <button onclick="requestRestart()" class="btn-press w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-3 rounded-full shadow-md transition-colors">
+        เล่นอีกครั้ง 🔄
+      </button>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast-container" class="fixed top-4 right-4 z-[70] flex flex-col gap-2 items-end"></div>
+
+<script>
+  const socket = io();
+
+  const TOTAL_LEVELS = 40;
+  const COLS = 5;
+  const ROWS = 8; // 5 x 8 = 40 question nodes
+
+  const NODE_COLORS_BY_TIER = ["#f472b6", "#fb923c", "#facc15", "#38bdf8", "#a78bfa"]; // 5 tiers
+  const DIFFICULTY_COLORS = {
+    "ง่าย": "bg-green-100 text-green-600",
+    "ง่าย-ปานกลาง": "bg-lime-100 text-lime-700",
+    "ปานกลาง": "bg-yellow-100 text-yellow-700",
+    "ยาก": "bg-orange-100 text-orange-600",
+    "ยากมาก": "bg-red-100 text-red-600"
+  };
+
+  // --- Build serpentine board coordinates (40 question nodes + start + finish) ---
+  function buildNodeCoords() {
+    const nodes = [];
+    let idx = 1;
+    for (let row = 0; row < ROWS; row++) {
+      const leftToRight = row % 2 === 0;
+      for (let c = 0; c < COLS; c++) {
+        const col = leftToRight ? c : (COLS - 1 - c);
+        const x = 10 + col * 20;
+        const y = 90 - row * 11;
+        nodes.push({ id: idx, x, y, tier: Math.floor((idx - 1) / 8) });
+        idx++;
+      }
+    }
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const start = { id: 0, x: first.x, y: 98, type: "start" };
+    const finish = { id: 41, x: last.x, y: Math.max(last.y - 9, 2), type: "finish" };
+    return [start, ...nodes, finish];
+  }
+
+  const NODE_COORDS = buildNodeCoords(); // length 42, index === player.position
+
+  let myId = null;
+  let myMode = null; // 'solo' | 'multi'
+  let myPlayer = null;
+  let currentQuestion = null;
+  let latestPlayers = [];
+  let pendingNextQuestion = null;
+  let penaltyTimer = null;
+  let selectedMode = null;
+
+  function selectMode(mode) {
+    selectedMode = mode;
+    document.getElementById('mode-solo-btn').classList.toggle('selected', mode === 'solo');
+    document.getElementById('mode-multi-btn').classList.toggle('selected', mode === 'multi');
+    const btn = document.getElementById('join-btn');
+    btn.disabled = false;
+    btn.className = 'btn-press w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-3 rounded-full shadow-lg shadow-pink-300 transition-colors';
+    btn.textContent = mode === 'solo' ? 'เริ่มเล่นคนเดียว 🎮' : 'เข้าร่วมแข่งขัน 🏁';
+  }
+
+  function joinGame() {
+    const name = document.getElementById('name-input').value.trim();
+    const errorEl = document.getElementById('join-error');
+    errorEl.classList.add('hidden');
+    if (!selectedMode) return;
+    if (!name) {
+      errorEl.textContent = 'กรุณาใส่ชื่อของคุณก่อนเข้าร่วมเกม';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+    socket.emit('join', { name, mode: selectedMode });
+  }
+
+  document.getElementById('name-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') joinGame();
+  });
+
+  socket.on('joinError', (msg) => {
+    const errorEl = document.getElementById('join-error');
+    errorEl.textContent = msg;
+    errorEl.classList.remove('hidden');
+  });
+
+  socket.on('joined', (data) => {
+    myId = socket.id;
+    myMode = data.mode;
+    myPlayer = data.self;
+    currentQuestion = data.currentQuestion;
+
+    document.getElementById('join-screen').classList.remove('active');
+    document.getElementById('game-screen').classList.add('active');
+
+    document.getElementById('winners-card').style.display = myMode === 'solo' ? 'none' : 'block';
+    document.getElementById('players-card').style.display = myMode === 'solo' ? 'none' : 'block';
+
+    buildBoard();
+    showQuestion(currentQuestion);
+  });
+
+  function buildBoard() {
+    const board = document.getElementById('board');
+    board.querySelectorAll('.node, .avatar-token').forEach(el => el.remove());
+
+    const svg = document.getElementById('path-svg');
+    svg.innerHTML = '';
+    const points = NODE_COORDS.map(n => `${n.x},${n.y}`).join(' ');
+    const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polyline.setAttribute("points", points);
+    polyline.setAttribute("fill", "none");
+    polyline.setAttribute("stroke", "#fbcfe8");
+    polyline.setAttribute("stroke-width", "1.6");
+    polyline.setAttribute("stroke-dasharray", "3 2.5");
+    polyline.setAttribute("stroke-linecap", "round");
+    svg.appendChild(polyline);
+
+    NODE_COORDS.forEach((n) => {
+      const el = document.createElement('div');
+      el.id = `node-${n.id}`;
+      el.style.left = n.x + '%';
+      el.style.top = n.y + '%';
+      if (n.type === 'start') {
+        el.className = 'node start-finish';
+        el.style.backgroundColor = '#be185d';
+        el.innerText = '🚩';
+      } else if (n.type === 'finish') {
+        el.className = 'node start-finish';
+        el.style.backgroundColor = '#be185d';
+        el.innerText = '🏆';
+      } else {
+        el.className = 'node node-locked';
+        el.style.backgroundColor = '';
+        el.innerText = n.id;
+      }
+      board.appendChild(el);
+    });
+
+    renderAvatars(latestPlayers);
+  }
+
+  function jitterFor(id, position) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+    const dx = ((hash % 13) - 6) * 0.8;
+    const dy = (((hash >> 4) % 13) - 6) * 0.8;
+    return { dx, dy };
+  }
+
+  function renderAvatars(playersArr) {
+    const board = document.getElementById('board');
+    board.querySelectorAll('.avatar-token').forEach(el => el.remove());
+
+    // Update node styling based on the current player's own progress
+    if (myPlayer) {
+      NODE_COORDS.forEach((n) => {
+        if (n.type) return;
+        const el = document.getElementById(`node-${n.id}`);
+        if (!el) return;
+        el.classList.remove('node-locked', 'node-done', 'node-current');
+        if (n.id < myPlayer.position + 1) {
+          el.classList.add('node-done');
+          el.style.backgroundColor = NODE_COLORS_BY_TIER[n.tier];
+        } else if (n.id === myPlayer.position + 1) {
+          el.classList.add('node-done', 'node-current');
+          el.style.backgroundColor = NODE_COLORS_BY_TIER[n.tier];
+        } else {
+          el.classList.add('node-locked');
+          el.style.backgroundColor = '';
+        }
+      });
+    }
+
+    playersArr.forEach(p => {
+      const coord = NODE_COORDS[p.position] || NODE_COORDS[0];
+      const { dx, dy } = jitterFor(p.id, p.position);
+      const token = document.createElement('div');
+      token.className = 'avatar-token' + (p.id === myId ? ' me' : '');
+      token.style.left = `calc(${coord.x}% + ${dx}px)`;
+      token.style.top = `calc(${coord.y}% + ${dy}px)`;
+      token.innerHTML = `
+        <div class="avatar-emoji">${p.avatar}</div>
+        <div class="avatar-name">${escapeHtml(p.name)}${p.finished ? ' 🏅' : ''}</div>
+      `;
+      board.appendChild(token);
+    });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  socket.on('stateUpdate', (data) => {
+    latestPlayers = data.players;
+
+    if (myMode === 'multi') {
+      document.getElementById('global-count').textContent = `ผู้เล่นออนไลน์: ${data.playerCount} / ${data.maxPlayers}`;
+      document.getElementById('player-count-label').textContent = `ผู้เล่นออนไลน์ตอนนี้: ${data.playerCount} / ${data.maxPlayers}`;
+    } else {
+      document.getElementById('global-count').textContent = 'โหมดเล่นคนเดียว';
+    }
+
+    const me = data.players.find(p => p.id === myId);
+    if (me) {
+      myPlayer = me;
+      const statusEl = document.getElementById('my-status');
+      if (me.finished) {
+        statusEl.textContent = myMode === 'solo'
+          ? '🏁 คุณผ่านครบทั้ง 40 ด่านแล้ว!'
+          : `🏁 คุณเข้าเส้นชัยแล้ว! อันดับที่ ${me.finishRank ?? '-'}`;
+      } else {
+        statusEl.textContent = `ด่านที่ ${me.position + 1} / ${TOTAL_LEVELS}`;
+      }
+    }
+
+    if (document.getElementById('board').children.length) {
+      renderAvatars(latestPlayers);
+    }
+
+    if (myMode === 'multi') {
+      updateWinnersList(data.winners);
+      updatePlayerListPanel(data.players);
+    }
+  });
+
+  function updateWinnersList(winners) {
+    const list = document.getElementById('winners-list');
+    if (!winners || winners.length === 0) {
+      list.innerHTML = '<li class="text-gray-400 italic">ยังไม่มีผู้เข้าเส้นชัย</li>';
+      return;
+    }
+    const medals = ['🥇', '🥈', '🥉', '🏅', '🏅'];
+    list.innerHTML = winners.map((w, i) =>
+      `<li class="flex items-center gap-2"><span>${medals[i] || '🏅'}</span><span>${w.avatar}</span><span class="font-medium">${escapeHtml(w.name)}</span></li>`
+    ).join('');
+  }
+
+  function updatePlayerListPanel(playersArr) {
+    const panel = document.getElementById('player-list');
+    const sorted = [...playersArr].sort((a, b) => b.position - a.position);
+    panel.innerHTML = sorted.map(p => {
+      const isMe = p.id === myId;
+      const label = p.finished ? `🏁 อันดับ ${p.finishRank ?? '-'}` : `ด่าน ${p.position + 1}/${TOTAL_LEVELS}`;
+      return `<div class="flex items-center justify-between px-2 py-1 rounded-lg ${isMe ? 'bg-pink-50' : ''}">
+        <span class="flex items-center gap-1 truncate">${p.avatar} ${escapeHtml(p.name)}${isMe ? ' (คุณ)' : ''}</span>
+        <span class="text-pink-500 font-medium whitespace-nowrap">${label}</span>
+      </div>`;
+    }).join('');
+  }
+
+  function showQuestion(q) {
+    if (!q) return;
+    currentQuestion = q;
+    document.getElementById('modal-title').textContent = `ด่านที่ ${q.level} / ${TOTAL_LEVELS}`;
+    document.getElementById('modal-category').textContent = q.category;
+    const badge = document.getElementById('level-badge');
+    badge.textContent = q.difficulty;
+
+    document.getElementById('character-avatar').textContent = q.avatar;
+    document.getElementById('character-name').textContent = q.name;
+    document.getElementById('character-desc').textContent = q.desc;
+    document.getElementById('question-text').textContent = q.question;
+
+    const optionsWrap = document.getElementById('choices-container');
+    optionsWrap.innerHTML = '';
+    q.options.forEach((opt, idx) => {
+      const btn = document.createElement('button');
+      btn.className = 'choice-btn w-full text-left p-4 rounded-xl border-2 border-pink-200 bg-white hover:bg-pink-50 text-gray-700 font-medium';
+      btn.textContent = opt;
+      btn.onclick = () => submitAnswer(idx, btn);
+      optionsWrap.appendChild(btn);
+    });
+    optionsWrap.classList.remove('hidden');
+
+    document.getElementById('feedback-section').classList.add('hidden');
+    document.getElementById('penalty-msg').classList.add('hidden');
+    document.getElementById('quiz-modal').classList.add('active');
+  }
+
+  function setOptionsEnabled(enabled) {
+    document.querySelectorAll('#choices-container button').forEach(b => b.disabled = !enabled);
+  }
+
+  let lastSelectedBtn = null;
+
+  function submitAnswer(answerIndex, btnEl) {
+    setOptionsEnabled(false);
+    lastSelectedBtn = btnEl;
+    socket.emit('submitAnswer', { answerIndex });
+  }
+
+  socket.on('answerResult', (res) => {
+    const allBtns = document.querySelectorAll('#choices-container button');
+    if (res.correct) {
+      if (lastSelectedBtn) lastSelectedBtn.classList.add('correct-anim');
+      pendingNextQuestion = res.finished ? null : res.nextQuestion;
+      setTimeout(() => showFeedback(true, res.explanation, res.finished), 500);
+    } else {
+      if (lastSelectedBtn) lastSelectedBtn.classList.add('incorrect-anim', 'bg-red-100', 'border-red-400');
+      setTimeout(() => showFeedback(false, res.explanation, false), 500);
+      startPenaltyCountdown(res.penaltyUntil);
+    }
+  });
+
+  function showFeedback(correct, explanation, finished) {
+    document.getElementById('choices-container').classList.add('hidden');
+    const feedbackSec = document.getElementById('feedback-section');
+    const icon = document.getElementById('feedback-icon');
+    const title = document.getElementById('feedback-title');
+
+    if (finished) {
+      icon.textContent = '🏆';
+      title.textContent = myMode === 'solo' ? 'ยินดีด้วย! ผ่านครบ 40 ด่านแล้ว!' : 'ยินดีด้วย! คุณถึงเส้นชัยแล้ว!';
+      title.className = 'text-center font-bold text-lg mb-2 text-pink-600';
+    } else if (correct) {
+      icon.textContent = '🎉';
+      title.textContent = 'ถูกต้อง! เก่งมาก';
+      title.className = 'text-center font-bold text-lg mb-2 text-green-600';
+    } else {
+      icon.textContent = '💡';
+      title.textContent = 'ยังไม่ถูกนะ ลองใหม่อีกครั้ง!';
+      title.className = 'text-center font-bold text-lg mb-2 text-orange-500';
+    }
+
+    document.getElementById('feedback-text').textContent = explanation;
+    document.getElementById('next-btn').textContent = finished ? 'ดูผลสรุป 🏆' : (correct ? 'ไปด่านต่อไป' : 'ลองอีกครั้ง');
+    feedbackSec.classList.remove('hidden');
+  }
+
+  function closeFeedback() {
+    document.getElementById('quiz-modal').classList.remove('active');
+    document.getElementById('choices-container').classList.remove('hidden');
+
+    if (pendingNextQuestion) {
+      const q = pendingNextQuestion;
+      pendingNextQuestion = null;
+      showQuestion(q);
+    } else if (myPlayer && !myPlayer.finished) {
+      showQuestion(currentQuestion);
+    }
+  }
+
+  function startPenaltyCountdown(penaltyUntil) {
+    const msgEl = document.getElementById('penalty-msg');
+    clearInterval(penaltyTimer);
+
+    function tick() {
+      const remaining = Math.ceil((penaltyUntil - Date.now()) / 1000);
+      if (remaining <= 0) {
+        clearInterval(penaltyTimer);
+        msgEl.classList.add('hidden');
+        return;
+      }
+      msgEl.textContent = `⏳ กรุณารอ ${remaining} วินาที ก่อนตอบใหม่...`;
+      msgEl.classList.remove('hidden');
+    }
+    tick();
+    penaltyTimer = setInterval(tick, 250);
+  }
+
+  socket.on('playerFinished', (info) => {
+    if (myMode === 'multi') {
+      showToast(`${info.avatar} ${info.name} เข้าเส้นชัยเป็นอันดับที่ ${info.rank}! 🎉`);
+    }
+  });
+
+  function showToast(text) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = 'fade-in bg-white border-2 border-pink-300 shadow-lg rounded-2xl px-4 py-2 text-sm text-pink-600 font-medium max-w-xs';
+    toast.textContent = text;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.style.transition = 'opacity 0.5s ease';
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 500);
+    }, 3500);
+  }
+
+  socket.on('gameOver', (data) => {
+    document.getElementById('quiz-modal').classList.remove('active');
+
+    const titleEl = document.getElementById('gameover-title');
+    const listEl = document.getElementById('final-winners-list');
+    const emojiEl = document.getElementById('gameover-emoji');
+
+    if (data.isSolo) {
+      emojiEl.textContent = '🎉🎗️';
+      titleEl.textContent = 'ยินดีด้วย! คุณพิชิตทุกด่านแล้ว';
+      listEl.innerHTML = '';
+    } else {
+      emojiEl.textContent = '🎉🎗️';
+      titleEl.textContent = 'จบเกม! Hall of Fame';
+      const medals = ['🥇', '🥈', '🥉', '🏅', '🏅'];
+      if (data.hallOfFame.length === 0) {
+        listEl.innerHTML = '<li class="text-gray-400 italic text-center">ไม่มีผู้เข้าเส้นชัยในรอบนี้</li>';
+      } else {
+        listEl.innerHTML = data.hallOfFame.map((w, i) => `
+          <li class="flex items-center gap-3 bg-pink-50 rounded-xl px-3 py-2">
+            <span class="text-2xl">${medals[i] || '🏅'}</span>
+            <span class="text-xl">${w.avatar}</span>
+            <span class="font-semibold text-gray-700">${escapeHtml(w.name)}</span>
+            <span class="ml-auto text-pink-500 text-sm font-medium">อันดับ ${w.rank}</span>
+          </li>
+        `).join('');
+      }
+    }
+
+    document.getElementById('final-message').textContent = data.message;
+    document.getElementById('gameover-modal').classList.add('active');
+  });
+
+  function requestRestart() {
+    socket.emit('restartGame');
+  }
+
+  socket.on('gameReset', () => {
+    document.getElementById('gameover-modal').classList.remove('active');
+    document.getElementById('quiz-modal').classList.remove('active');
+    document.getElementById('game-screen').classList.remove('active');
+    document.getElementById('join-screen').classList.add('active');
+    document.getElementById('name-input').value = '';
+    document.getElementById('mode-solo-btn').classList.remove('selected');
+    document.getElementById('mode-multi-btn').classList.remove('selected');
+    const btn = document.getElementById('join-btn');
+    btn.disabled = true;
+    btn.className = 'btn-press w-full bg-gray-300 text-white font-semibold py-3 rounded-full shadow-lg transition-colors';
+    btn.textContent = 'เลือกโหมดก่อนเริ่มเกม';
+    selectedMode = null;
+    myId = null;
+    myMode = null;
+    myPlayer = null;
+    latestPlayers = [];
+    pendingNextQuestion = null;
+    clearInterval(penaltyTimer);
+  });
+</script>
+
+</body>
+</html>
