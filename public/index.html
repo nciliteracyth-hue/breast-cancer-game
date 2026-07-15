@@ -122,6 +122,19 @@
     position: absolute; color: rgba(236,72,153,0.25); font-weight: 800; z-index: 1;
     animation: blobFloat 4s ease-in-out infinite; pointer-events: none;
   }
+
+  /* ---------- Clipboard / case-file quiz card ---------- */
+  .clipboard-clip {
+    position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+    width: 80px; height: 30px; background: linear-gradient(180deg,#e5e7eb,#9ca3af);
+    border-radius: 9px 9px 5px 5px; box-shadow: 0 3px 5px rgba(0,0,0,0.25); z-index: 10;
+  }
+  .clipboard-header {
+    background: #fef3c7;
+    padding: 1.5rem 1.25rem 0.85rem;
+    text-align: center;
+    border-bottom: 3px dashed #fbbf24;
+  }
 </style>
 </head>
 <body class="p-3 md:p-6">
@@ -133,16 +146,31 @@
       Breast Cancer Awareness 🎀
     </div>
     <div class="flex items-center justify-center gap-3 mb-1">
-      <!-- Cute pink ribbon mascot: ribbon shape + googly eyes, matching the blob-character concept -->
-      <div class="ribbon-mascot" style="position:relative; width:44px; height:52px; flex-shrink:0;">
-        <svg width="44" height="52" viewBox="0 0 100 118" aria-label="pink ribbon mascot">
+      <!-- Decorative pink ribbon with sparkle/heart/flower accents, inspired by the reference illustration -->
+      <div style="position:relative; width:46px; height:54px; flex-shrink:0;">
+        <svg width="46" height="54" viewBox="0 0 100 118" aria-label="pink ribbon">
+          <defs>
+            <linearGradient id="ribbonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#fbcfe8"/>
+              <stop offset="100%" stop-color="#ec4899"/>
+            </linearGradient>
+          </defs>
           <path d="M50 4 C 28 26, 28 48, 47 60 C 28 66, 16 84, 22 102 C 30 90, 41 80, 50 75 C 59 80, 70 90, 78 102 C 84 84, 72 66, 53 60 C 72 48, 72 26, 50 4 Z"
-            fill="#f9a8d4" stroke="#ec4899" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+            fill="url(#ribbonGrad)" stroke="#db2777" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+          <!-- sparkle accents -->
+          <path d="M14 30 l3 7 l7 3 l-7 3 l-3 7 l-3-7 l-7-3 l7-3 Z" fill="#fde68a"/>
+          <path d="M88 70 l2.2 5 l5 2.2 l-5 2.2 l-2.2 5 l-2.2-5 l-5-2.2 l5-2.2 Z" fill="#fbcfe8"/>
+          <!-- tiny heart -->
+          <path d="M14 88 c-4-4-9-1-9 3 c0 4 5 7 9 11 c4-4 9-7 9-11 c0-4-5-7-9-3 Z" fill="#f472b6"/>
+          <!-- tiny flower -->
+          <g transform="translate(84,20)">
+            <circle cx="0" cy="-5" r="4" fill="#fff"/>
+            <circle cx="5" cy="0" r="4" fill="#fff"/>
+            <circle cx="0" cy="5" r="4" fill="#fff"/>
+            <circle cx="-5" cy="0" r="4" fill="#fff"/>
+            <circle cx="0" cy="0" r="3" fill="#fbbf24"/>
+          </g>
         </svg>
-        <div class="blob-eyes" style="top:22%; gap:5px;">
-          <div class="googly-eye" style="width:13px;height:13px;"><div class="googly-pupil" style="width:6px;height:6px;"></div></div>
-          <div class="googly-eye" style="width:13px;height:13px;"><div class="googly-pupil" style="width:6px;height:6px;"></div></div>
-        </div>
       </div>
       <h1 class="text-xl md:text-3xl font-bold text-gray-800">รู้มั้ย <span class="text-pink-600">ใครเสี่ยงมะเร็งเต้านม</span></h1>
     </div>
@@ -232,11 +260,12 @@
 
   <!-- QUESTION MODAL -->
   <div id="quiz-modal" class="modal-overlay fixed inset-0 bg-gray-900 bg-opacity-50 z-40 items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-visible modal-enter flex flex-col max-h-[90vh] relative">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-visible modal-enter flex flex-col max-h-[90vh] relative mt-6">
+      <div class="clipboard-clip"></div>
       <div id="mascot-peek" class="mascot-peek"></div>
-      <div class="bg-pink-500 text-white p-4 text-center relative shrink-0 rounded-t-2xl">
-        <h2 id="modal-title" class="text-lg font-bold"></h2>
-        <span id="level-badge" class="absolute right-3 top-3 bg-pink-700 text-xs px-2 py-1 rounded-full"></span>
+      <div class="clipboard-header rounded-t-2xl">
+        <h2 id="modal-title" class="text-base font-bold text-gray-800"></h2>
+        <span id="level-badge" class="inline-block mt-1 bg-amber-600 text-white text-xs px-3 py-1 rounded-full"></span>
       </div>
 
       <div class="p-6 overflow-y-auto">
