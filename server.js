@@ -1,8 +1,8 @@
 /**
- * รู้ไหมใครเสี่ยงมะเร็งเต้านม — 40-Level Solo / Multiplayer Board Game
+ * รู้มั้ย ใครเสี่ยงมะเร็งเต้านม — 40-Level Solo / Multiplayer Board Game
  * Backend: Express + Socket.IO, fully in-memory (no database).
  *
- * Visual style: "Mission Pink" — vibrant cartoonish blob mascots.
+ * Visual style: soft pastel pink theme with cute cartoon blob mascots (googly eyes).
  * Game logic below is unchanged from the original 40-level engine.
  *
  * Modes:
@@ -67,9 +67,9 @@ const RAW_CONTENT = [
   // Category 0: วิถีชีวิตและพฤติกรรมเสี่ยง
   [
     {
-      avatar: "🍔", name: "น้องมายด์ (อายุ 25 ปี)",
+      avatar: "🍔", name: "มะนาว (อายุ 25 ปี)",
       desc: "ชอบกินของทอด ของหวาน ปาร์ตี้ดื่มแอลกอฮอล์บ่อย และมีน้ำหนักตัวเกินเกณฑ์มาตรฐาน",
-      question: "พฤติกรรมของน้องมายด์ ส่งผลต่อความเสี่ยงมะเร็งเต้านมหรือไม่?",
+      question: "พฤติกรรมของมะนาว ส่งผลต่อความเสี่ยงมะเร็งเต้านมหรือไม่?",
       options: ["ไม่เสี่ยงเลย เพราะยังอายุน้อย", "เสี่ยงเพิ่มขึ้น จากแอลกอฮอล์และความอ้วน"],
       correctIndex: 1,
       explanation: "แม้อายุน้อย แต่ความอ้วน (โดยเฉพาะไขมันสะสม) และการดื่มแอลกอฮอล์เป็นประจำ จะไปกระตุ้นฮอร์โมนที่เพิ่มความเสี่ยงมะเร็งเต้านมสะสมระยะยาวได้ ควรเริ่มปรับพฤติกรรมแต่เนิ่นๆ"
@@ -696,5 +696,5 @@ io.on("connection", (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🎗️  รู้ไหมใครเสี่ยงมะเร็งเต้านม (40 levels) running on http://localhost:${PORT}`);
+  console.log(`🎗️  รู้มั้ย ใครเสี่ยงมะเร็งเต้านม (40 levels) running on http://localhost:${PORT}`);
 });
