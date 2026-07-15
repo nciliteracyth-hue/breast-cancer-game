@@ -1,7 +1,7 @@
 {
   "name": "rumai-krai-sieng-mareng-tanom",
   "version": "1.0.0",
-  "description": "รู้ไหมใครเสี่ยงมะเร็งเต้านม — 40-level real-time solo/multiplayer breast cancer awareness board game (Mission Pink visual style)",
+  "description": "รู้มั้ย ใครเสี่ยงมะเร็งเต้านม — 40-level real-time solo/multiplayer breast cancer awareness board game (Mission Pink visual style)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
