@@ -1,7 +1,7 @@
 {
-  "name": "breast-cancer-awareness-race-40",
+  "name": "mission-pink-breast-cancer-awareness",
   "version": "1.0.0",
-  "description": "Real-time solo/multiplayer breast cancer awareness board game with 40 levels (รู้มั้ย ใครเสี่ยงมะเร็งเต้านม?)",
+  "description": "Mission Pink: ภารกิจสืบหาความเสี่ยงมะเร็งเต้านม — real-time multiplayer awareness board game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
