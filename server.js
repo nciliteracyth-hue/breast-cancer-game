@@ -13,6 +13,7 @@
 
 const express = require("express");
 const http = require("http");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 const path = require("path");
 
@@ -29,7 +30,41 @@ const PENALTY_MS = 3000;
 const TOTAL_LEVELS = 40;
 const PUBLIC_ROOM_ID = "public-race";
 
+// ---------------------------------------------------------------------------
+// Admin auth — single shared password (set ADMIN_PASSWORD env var in prod),
+// sessions kept in memory only (no database), matching the rest of this app.
+// ---------------------------------------------------------------------------
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+const ADMIN_COOKIE = "admin_session";
+const adminSessions = new Set();
+
+function parseCookies(header) {
+  const out = {};
+  if (!header) return out;
+  header.split(";").forEach((pair) => {
+    const idx = pair.indexOf("=");
+    if (idx === -1) return;
+    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+  });
+  return out;
+}
+
+function adminTokenFrom(req) {
+  return parseCookies(req.headers.cookie)[ADMIN_COOKIE];
+}
+
+function isAdminAuthed(req) {
+  const token = adminTokenFrom(req);
+  return !!token && adminSessions.has(token);
+}
+
+function requireAdmin(req, res, next) {
+  if (isAdminAuthed(req)) return next();
+  res.status(401).json({ error: "unauthorized" });
+}
+
 app.use(express.static(path.join(__dirname, "public")));
+app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // Game content — 40 levels across 8 recurring categories, each category
@@ -523,6 +558,50 @@ function broadcastState(room) {
     maxPlayers: room.maxPlayers,
     isPublic: room.isPublic
   });
+  pushAdminSnapshot();
+}
+
+// ---------------------------------------------------------------------------
+// Admin dashboard data — read-only snapshot of live rooms/players, pushed to
+// the /admin Socket.IO namespace on every state change.
+// ---------------------------------------------------------------------------
+function buildAdminSnapshot() {
+  const roomList = Object.values(rooms).map((r) => ({
+    id: r.id,
+    isPublic: r.isPublic,
+    maxPlayers: r.maxPlayers,
+    gameEnded: r.gameEnded,
+    winners: r.winners,
+    playerCount: Object.keys(r.players).length,
+    players: publicPlayerList(r)
+  }));
+
+  const publicRoom = roomList.find((r) => r.isPublic) || null;
+  const soloRooms = roomList.filter((r) => !r.isPublic);
+
+  return {
+    generatedAt: Date.now(),
+    totalRooms: roomList.length,
+    totalPlayers: roomList.reduce((sum, r) => sum + r.playerCount, 0),
+    multiPlayers: publicRoom ? publicRoom.playerCount : 0,
+    soloPlayers: soloRooms.reduce((sum, r) => sum + r.playerCount, 0),
+    publicRoom,
+    soloRooms
+  };
+}
+
+const adminIo = io.of("/admin");
+adminIo.use((socket, next) => {
+  const token = parseCookies(socket.handshake.headers.cookie)[ADMIN_COOKIE];
+  if (token && adminSessions.has(token)) return next();
+  next(new Error("unauthorized"));
+});
+adminIo.on("connection", (socket) => {
+  socket.emit("snapshot", buildAdminSnapshot());
+});
+
+function pushAdminSnapshot() {
+  adminIo.emit("snapshot", buildAdminSnapshot());
 }
 
 function checkGameOverConditions(room) {
@@ -687,12 +766,65 @@ io.on("connection", (socket) => {
 
     if (!room.isPublic && Object.keys(room.players).length === 0) {
       delete rooms[roomId];
+      pushAdminSnapshot();
       return;
     }
 
     broadcastState(room);
     checkGameOverConditions(room);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Admin routes
+// ---------------------------------------------------------------------------
+app.get("/admin", (req, res) => {
+  // Magic-link access: visiting /admin?key=<ADMIN_PASSWORD> logs you in
+  // instantly (sets the same session cookie the password form would),
+  // so the link itself can be bookmarked/shared instead of typing a password.
+  const key = req.query.key;
+  if (key && key === ADMIN_PASSWORD && !isAdminAuthed(req)) {
+    const token = crypto.randomBytes(24).toString("hex");
+    adminSessions.add(token);
+    res.setHeader(
+      "Set-Cookie",
+      `${ADMIN_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`
+    );
+  }
+  res.sendFile(path.join(__dirname, "admin.html"));
+});
+
+app.post("/admin/api/login", (req, res) => {
+  const password = (req.body && req.body.password) || "";
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ ok: false, error: "รหัสผ่านไม่ถูกต้อง" });
+  }
+  const token = crypto.randomBytes(24).toString("hex");
+  adminSessions.add(token);
+  res.setHeader(
+    "Set-Cookie",
+    `${ADMIN_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`
+  );
+  res.json({ ok: true });
+});
+
+app.post("/admin/api/logout", (req, res) => {
+  const token = adminTokenFrom(req);
+  if (token) adminSessions.delete(token);
+  res.setHeader("Set-Cookie", `${ADMIN_COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
+  res.json({ ok: true });
+});
+
+app.get("/admin/api/session", (req, res) => {
+  res.json({ authenticated: isAdminAuthed(req) });
+});
+
+app.get("/admin/api/levels", requireAdmin, (req, res) => {
+  res.json({ totalLevels: TOTAL_LEVELS, categories: CATEGORY_NAMES, levels: LEVELS });
+});
+
+app.get("/admin/api/snapshot", requireAdmin, (req, res) => {
+  res.json(buildAdminSnapshot());
 });
 
 server.listen(PORT, () => {
