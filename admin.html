@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Dashboard — รู้มั้ย ใครเสี่ยงมะเร็งเต้านม</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/socket.io/socket.io.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { font-family: 'Prompt', sans-serif; box-sizing: border-box; }
+  body { background-color: #fdf2f8; min-height: 100vh; margin: 0; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .tab-btn.active { background-color: #ec4899; color: white; }
+  .correct-opt { background-color: #d1fae5 !important; border-color: #34d399 !important; }
+</style>
+</head>
+<body class="p-4 md:p-8">
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="screen active w-full max-w-sm mx-auto mt-24">
+    <div class="bg-white rounded-3xl shadow-xl p-8 border-4 border-pink-200 text-center">
+      <div class="text-4xl mb-3">🔐</div>
+      <h1 class="text-lg font-bold text-gray-800 mb-1">Admin Dashboard</h1>
+      <p class="text-gray-400 text-xs mb-5">รู้มั้ย ใครเสี่ยงมะเร็งเต้านม</p>
+      <div class="relative mb-3">
+        <input id="password-input" type="password" placeholder="รหัสผ่านแอดมิน"
+          class="w-full border-2 border-pink-200 rounded-full px-5 py-3 pr-12 text-center focus:outline-none focus:border-pink-400 text-gray-700"/>
+        <button type="button" onclick="togglePasswordVisibility()" aria-label="แสดง/ซ่อนรหัสผ่าน"
+          class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-pink-500 text-sm">
+          <span id="toggle-password-icon">👁️</span>
+        </button>
+      </div>
+      <button id="login-btn" onclick="login()"
+        class="w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-3 rounded-full shadow-lg transition-colors">
+        เข้าสู่ระบบ
+      </button>
+      <p id="login-error" class="text-red-500 text-sm mt-3 hidden"></p>
+    </div>
+  </div>
+
+  <!-- DASHBOARD SCREEN -->
+  <div id="dashboard-screen" class="screen w-full max-w-6xl mx-auto">
+    <div class="flex items-center justify-between mb-5">
+      <h1 class="text-xl md:text-2xl font-bold text-gray-800">🎗️ Admin Dashboard</h1>
+      <button onclick="logout()" class="text-sm bg-white border-2 border-pink-200 text-pink-600 px-4 py-2 rounded-full hover:bg-pink-50">
+        ออกจากระบบ
+      </button>
+    </div>
+
+    <div class="flex gap-2 mb-5 flex-wrap">
+      <button class="tab-btn active px-4 py-2 rounded-full text-sm font-medium border-2 border-pink-200 text-pink-600" data-tab="overview" onclick="showTab('overview')">ภาพรวม</button>
+      <button class="tab-btn px-4 py-2 rounded-full text-sm font-medium border-2 border-pink-200 text-pink-600" data-tab="rooms" onclick="showTab('rooms')">ห้อง/ผู้เล่นสด</button>
+      <button class="tab-btn px-4 py-2 rounded-full text-sm font-medium border-2 border-pink-200 text-pink-600" data-tab="levels" onclick="showTab('levels')">คลังคำถาม (40 ด่าน)</button>
+    </div>
+
+    <!-- OVERVIEW TAB -->
+    <div id="tab-overview" class="tab-panel">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
+          <div class="text-2xl font-bold text-pink-600" id="stat-total-players">0</div>
+          <div class="text-xs text-gray-500 mt-1">ผู้เล่นออนไลน์ทั้งหมด</div>
+        </div>
+        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
+          <div class="text-2xl font-bold text-pink-600" id="stat-total-rooms">0</div>
+          <div class="text-xs text-gray-500 mt-1">ห้องที่ใช้งานอยู่</div>
+        </div>
+        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
+          <div class="text-2xl font-bold text-pink-600" id="stat-multi-players">0</div>
+          <div class="text-xs text-gray-500 mt-1">ผู้เล่นในห้องแข่งกลาง</div>
+        </div>
+        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
+          <div class="text-2xl font-bold text-pink-600" id="stat-solo-players">0</div>
+          <div class="text-xs text-gray-500 mt-1">ผู้เล่นโหมดคนเดียว</div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-lg border-2 border-pink-200 p-4">
+        <h3 class="text-pink-600 font-bold text-sm mb-2">🏆 ห้องแข่งกลาง (public-race)</h3>
+        <div id="public-room-summary" class="text-sm text-gray-600">ยังไม่มีห้องแข่งกลางที่ใช้งานอยู่</div>
+      </div>
+    </div>
+
+    <!-- ROOMS TAB -->
+    <div id="tab-rooms" class="tab-panel hidden">
+      <div class="mb-4">
+        <h3 class="text-pink-600 font-bold text-sm mb-2">🏆 ห้องแข่งกลาง</h3>
+        <div id="public-room-table" class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 overflow-x-auto"></div>
+      </div>
+      <div>
+        <h3 class="text-pink-600 font-bold text-sm mb-2">🧍 ห้องเล่นคนเดียว (<span id="solo-room-count">0</span>)</h3>
+        <div id="solo-rooms-table" class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 overflow-x-auto"></div>
+      </div>
+    </div>
+
+    <!-- LEVELS TAB -->
+    <div id="tab-levels" class="tab-panel hidden">
+      <input id="level-search" type="text" placeholder="ค้นหาด่าน / หมวด / ชื่อเคส..."
+        class="w-full border-2 border-pink-200 rounded-full px-5 py-2 mb-4 focus:outline-none focus:border-pink-400 text-gray-700 text-sm"
+        oninput="renderLevels()"/>
+      <div id="levels-list" class="space-y-3"></div>
+    </div>
+  </div>
+
+<script>
+  let allLevels = [];
+
+  async function checkSession() {
+    const res = await fetch('/admin/api/session');
+    const data = await res.json();
+    if (data.authenticated) enterDashboard();
+    else showScreen('login-screen');
+  }
+
+  function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  async function login() {
+    const password = document.getElementById('password-input').value;
+    const errorEl = document.getElementById('login-error');
+    errorEl.classList.add('hidden');
+    const res = await fetch('/admin/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      enterDashboard();
+    } else {
+      errorEl.textContent = data.error || 'เข้าสู่ระบบไม่สำเร็จ';
+      errorEl.classList.remove('hidden');
+    }
+  }
+
+  document.getElementById('password-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
+
+  function togglePasswordVisibility() {
+    const input = document.getElementById('password-input');
+    const icon = document.getElementById('toggle-password-icon');
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    icon.textContent = showing ? '👁️' : '🙈';
+  }
+
+  async function logout() {
+    await fetch('/admin/api/logout', { method: 'POST' });
+    location.reload();
+  }
+
+  async function enterDashboard() {
+    showScreen('dashboard-screen');
+    await loadLevels();
+    connectLiveFeed();
+  }
+
+  async function loadLevels() {
+    const res = await fetch('/admin/api/levels');
+    if (!res.ok) return;
+    const data = await res.json();
+    allLevels = data.levels;
+    renderLevels();
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+  }
+
+  function renderLevels() {
+    const query = document.getElementById('level-search').value.trim().toLowerCase();
+    const list = document.getElementById('levels-list');
+    const filtered = allLevels.filter(l => {
+      if (!query) return true;
+      return [l.level, l.category, l.difficulty, l.name, l.question].join(' ').toLowerCase().includes(query);
+    });
+    list.innerHTML = filtered.map(l => `
+      <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <span class="font-bold text-gray-800">ด่านที่ ${l.level} — ${escapeHtml(l.category)}</span>
+          <span class="text-xs bg-pink-100 text-pink-600 px-3 py-1 rounded-full">${escapeHtml(l.difficulty)} · ${escapeHtml(l.mascot)}</span>
+        </div>
+        <div class="text-sm text-gray-700 mb-2"><b>${l.avatar} ${escapeHtml(l.name)}</b> — ${escapeHtml(l.desc)}</div>
+        <div class="text-sm text-gray-800 font-medium mb-2">${escapeHtml(l.question)}</div>
+        <div class="space-y-1 mb-2">
+          ${l.options.map((opt, i) => `
+            <div class="text-sm px-3 py-1.5 rounded-lg border ${i === l.correctIndex ? 'correct-opt' : 'border-gray-200'}">
+              ${i === l.correctIndex ? '✅' : '▫️'} ${escapeHtml(opt)}
+            </div>`).join('')}
+        </div>
+        <div class="text-xs text-gray-500 bg-gray-50 rounded-lg p-2">${escapeHtml(l.explanation)}</div>
+      </div>
+    `).join('') || '<p class="text-gray-400 text-sm text-center">ไม่พบด่านที่ตรงกับคำค้นหา</p>';
+  }
+
+  function showTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(el => el.classList.add('hidden'));
+    document.getElementById('tab-' + name).classList.remove('hidden');
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.toggle('active', el.dataset.tab === name));
+  }
+
+  function connectLiveFeed() {
+    const socket = io('/admin');
+    socket.on('snapshot', renderSnapshot);
+    socket.on('connect_error', () => {
+      showScreen('login-screen');
+    });
+  }
+
+  function playerRowsHtml(players) {
+    if (!players.length) return '<tr><td class="text-gray-400 text-sm py-2" colspan="4">ไม่มีผู้เล่น</td></tr>';
+    return players.map(p => `
+      <tr class="border-t border-pink-50">
+        <td class="py-1.5 pr-3">${p.avatar} ${escapeHtml(p.name)}</td>
+        <td class="py-1.5 pr-3">${p.finished ? `🏁 อันดับ ${p.finishRank ?? '-'}` : `ด่าน ${p.position + 1}/40`}</td>
+        <td class="py-1.5 pr-3 text-gray-400 text-xs">${p.id.slice(0, 8)}</td>
+      </tr>`).join('');
+  }
+
+  function renderSnapshot(data) {
+    document.getElementById('stat-total-players').textContent = data.totalPlayers;
+    document.getElementById('stat-total-rooms').textContent = data.totalRooms;
+    document.getElementById('stat-multi-players').textContent = data.multiPlayers;
+    document.getElementById('stat-solo-players').textContent = data.soloPlayers;
+
+    const pr = data.publicRoom;
+    const summaryEl = document.getElementById('public-room-summary');
+    const tableWrap = document.getElementById('public-room-table');
+    if (!pr) {
+      summaryEl.textContent = 'ยังไม่มีห้องแข่งกลางที่ใช้งานอยู่';
+      tableWrap.innerHTML = '<p class="text-gray-400 text-sm">ยังไม่มีห้องแข่งกลางที่ใช้งานอยู่</p>';
+    } else {
+      summaryEl.innerHTML = `ผู้เล่น ${pr.playerCount}/${pr.maxPlayers} · ${pr.gameEnded ? 'จบเกมแล้ว' : 'กำลังเล่น'} · ผู้เข้าเส้นชัย ${pr.winners.length}/5`;
+      tableWrap.innerHTML = `
+        <table class="w-full text-sm text-left">
+          <thead><tr class="text-gray-400 text-xs"><th class="pb-2">ผู้เล่น</th><th class="pb-2">สถานะ</th><th class="pb-2">Socket ID</th></tr></thead>
+          <tbody>${playerRowsHtml(pr.players)}</tbody>
+        </table>`;
+    }
+
+    document.getElementById('solo-room-count').textContent = data.soloRooms.length;
+    const soloWrap = document.getElementById('solo-rooms-table');
+    if (!data.soloRooms.length) {
+      soloWrap.innerHTML = '<p class="text-gray-400 text-sm">ไม่มีห้องเล่นคนเดียวที่ใช้งานอยู่</p>';
+    } else {
+      soloWrap.innerHTML = `
+        <table class="w-full text-sm text-left">
+          <thead><tr class="text-gray-400 text-xs"><th class="pb-2">ผู้เล่น</th><th class="pb-2">สถานะ</th><th class="pb-2">Socket ID</th></tr></thead>
+          <tbody>${data.soloRooms.map(r => playerRowsHtml(r.players)).join('')}</tbody>
+        </table>`;
+    }
+  }
+
+  if (location.search.includes('key=')) {
+    history.replaceState({}, '', location.pathname);
+  }
+  checkSession();
+</script>
+</body>
+</html>
