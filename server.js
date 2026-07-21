@@ -13,58 +13,60 @@
 
 const express = require("express");
 const http = require("http");
-const crypto = require("crypto");
 const { Server } = require("socket.io");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" }
 });
+app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const MAX_PUBLIC_PLAYERS = 20;
+let MAX_PUBLIC_PLAYERS = 20; // mutable — adjustable live from the admin System Settings tab
 const MAX_WINNERS = 5;
 const PENALTY_MS = 3000;
 const TOTAL_LEVELS = 40;
 const PUBLIC_ROOM_ID = "public-race";
 
-// ---------------------------------------------------------------------------
-// Admin auth — single shared password (set ADMIN_PASSWORD env var in prod),
-// sessions kept in memory only (no database), matching the rest of this app.
-// ---------------------------------------------------------------------------
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
-const ADMIN_COOKIE = "admin_session";
-const adminSessions = new Set();
+// System settings mutable from the admin dashboard.
+let MAINTENANCE_MODE = false;
 
-function parseCookies(header) {
-  const out = {};
-  if (!header) return out;
-  header.split(";").forEach((pair) => {
-    const idx = pair.indexOf("=");
-    if (idx === -1) return;
-    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
-  });
-  return out;
-}
+// Admin dashboard config. This is a simple shared-passcode gate suitable for
+// local/internal use only — NOT real authentication. For a public deployment,
+// replace this with proper auth (login, HTTPS-only cookies, etc.).
+const ADMIN_ROOM = "admin-room";
+const ADMIN_PASSCODE = process.env.ADMIN_PASSCODE || "admin123";
+const SERVER_START_TIME = Date.now();
 
-function adminTokenFrom(req) {
-  return parseCookies(req.headers.cookie)[ADMIN_COOKIE];
-}
+// Where level edits made in the Question CMS tab are persisted, so they
+// survive a server restart without needing a real database.
+const LEVEL_OVERRIDES_PATH = path.join(__dirname, "data", "level-overrides.json");
 
-function isAdminAuthed(req) {
-  const token = adminTokenFrom(req);
-  return !!token && adminSessions.has(token);
-}
+// Rolling time-series of online-player counts, sampled periodically, used to
+// power the "Players over time" chart on the admin Analytics tab.
+const onlineHistory = [];
 
-function requireAdmin(req, res, next) {
-  if (isAdminAuthed(req)) return next();
-  res.status(401).json({ error: "unauthorized" });
+// Lifetime aggregate stats (reset only when the server process restarts).
+const globalStats = {
+  totalJoins: 0,
+  soloJoins: 0,
+  multiJoins: 0,
+  totalFinishes: 0,
+  soloFinishes: 0,
+  multiFinishes: 0,
+  peakConcurrent: 0,
+  totalAnswers: 0,
+  // levelStats[levelNumber] = { correct, wrong }
+  levelStats: {}
+};
+for (let i = 1; i <= TOTAL_LEVELS; i++) {
+  globalStats.levelStats[i] = { correct: 0, wrong: 0 };
 }
 
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // Game content — 40 levels across 8 recurring categories, each category
@@ -470,6 +472,33 @@ for (let tier = 0; tier < 5; tier++) {
   }
 }
 
+// --- Question CMS: load any previously-saved edits from disk (if present) ---
+// so admin changes made via the Question CMS tab survive a server restart.
+function loadLevelOverrides() {
+  try {
+    if (fs.existsSync(LEVEL_OVERRIDES_PATH)) {
+      const raw = fs.readFileSync(LEVEL_OVERRIDES_PATH, "utf8");
+      const overrides = JSON.parse(raw);
+      let count = 0;
+      Object.keys(overrides).forEach((levelNumStr) => {
+        const levelNum = Number(levelNumStr);
+        const idx = levelNum - 1;
+        if (idx < 0 || idx >= LEVELS.length) return;
+        const o = overrides[levelNumStr];
+        if (typeof o.question === "string") LEVELS[idx].question = o.question;
+        if (Array.isArray(o.options) && o.options.length >= 2) LEVELS[idx].options = o.options;
+        if (typeof o.correctIndex === "number") LEVELS[idx].correctIndex = o.correctIndex;
+        if (typeof o.explanation === "string") LEVELS[idx].explanation = o.explanation;
+        count++;
+      });
+      if (count > 0) console.log(`📂 Loaded saved edits for ${count} level(s) from ${LEVEL_OVERRIDES_PATH}`);
+    }
+  } catch (err) {
+    console.error("Failed to load level overrides:", err.message);
+  }
+}
+loadLevelOverrides();
+
 // Public version (no answer key) sent to clients.
 const LEVELS_PUBLIC = LEVELS.map((l) => ({
   level: l.level,
@@ -484,6 +513,92 @@ const LEVELS_PUBLIC = LEVELS.map((l) => ({
   question: l.question,
   options: l.options
 }));
+
+// Keeps LEVELS_PUBLIC[idx] in sync after a CMS edit mutates LEVELS[idx].
+function syncPublicLevel(idx) {
+  const l = LEVELS[idx];
+  LEVELS_PUBLIC[idx] = {
+    level: l.level,
+    category: l.category,
+    difficulty: l.difficulty,
+    mascot: l.mascot,
+    mascotColor: l.mascotColor,
+    mascotHex: l.mascotHex,
+    avatar: l.avatar,
+    name: l.name,
+    desc: l.desc,
+    question: l.question,
+    options: l.options
+  };
+}
+
+// Persists the editable fields of all 40 levels to disk as JSON.
+function saveLevelOverridesToDisk() {
+  const dir = path.dirname(LEVEL_OVERRIDES_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const overrides = {};
+  LEVELS.forEach((l) => {
+    overrides[l.level] = {
+      question: l.question,
+      options: l.options,
+      correctIndex: l.correctIndex,
+      explanation: l.explanation
+    };
+  });
+  fs.writeFileSync(LEVEL_OVERRIDES_PATH, JSON.stringify(overrides, null, 2), "utf8");
+}
+
+// ---------------------------------------------------------------------------
+// REST API for the admin Question CMS tab (Tab 3). Uses a simple passcode
+// header instead of session auth — same caveat as the Socket.IO admin gate:
+// fine for local/internal use, not real authentication for a public deploy.
+// ---------------------------------------------------------------------------
+function requireAdminPasscode(req, res, next) {
+  const passcode = req.get("x-admin-passcode");
+  if (passcode !== ADMIN_PASSCODE) {
+    return res.status(401).json({ error: "unauthorized", message: "รหัสผ่านแอดมินไม่ถูกต้องหรือไม่ได้ส่งมา" });
+  }
+  next();
+}
+
+// GET the full editable level list (includes correctIndex — admin-only).
+app.get("/api/admin/levels", requireAdminPasscode, (req, res) => {
+  res.json({ levels: LEVELS });
+});
+
+// PUT an edit to a single level's question/options/correctIndex/explanation.
+app.put("/api/admin/levels/:level", requireAdminPasscode, (req, res) => {
+  const levelNum = Number(req.params.level);
+  const idx = levelNum - 1;
+  if (!Number.isInteger(levelNum) || idx < 0 || idx >= LEVELS.length) {
+    return res.status(404).json({ error: "not_found", message: "ไม่พบด่านนี้" });
+  }
+
+  const { question, options, correctIndex, explanation } = req.body || {};
+
+  if (typeof question !== "string" || !question.trim()) {
+    return res.status(400).json({ error: "invalid_question", message: "กรุณาระบุคำถาม" });
+  }
+  if (!Array.isArray(options) || options.length < 2 || options.some((o) => typeof o !== "string" || !o.trim())) {
+    return res.status(400).json({ error: "invalid_options", message: "ต้องมีตัวเลือกอย่างน้อย 2 ข้อ และห้ามเว้นว่าง" });
+  }
+  if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+    return res.status(400).json({ error: "invalid_correct_index", message: "ดัชนีคำตอบที่ถูกต้องไม่อยู่ในช่วงของตัวเลือก" });
+  }
+  if (typeof explanation !== "string" || !explanation.trim()) {
+    return res.status(400).json({ error: "invalid_explanation", message: "กรุณาระบุคำอธิบายเชิงความรู้" });
+  }
+
+  LEVELS[idx].question = question.trim();
+  LEVELS[idx].options = options.map((o) => o.trim());
+  LEVELS[idx].correctIndex = correctIndex;
+  LEVELS[idx].explanation = explanation.trim();
+
+  syncPublicLevel(idx);
+  saveLevelOverridesToDisk();
+
+  res.json({ success: true, level: LEVELS[idx] });
+});
 
 const AVATAR_POOL = [
   "🐱", "🐶", "🐰", "🦊", "🐼", "🐨", "🐯", "🦁", "🐸", "🐵",
@@ -558,50 +673,7 @@ function broadcastState(room) {
     maxPlayers: room.maxPlayers,
     isPublic: room.isPublic
   });
-  pushAdminSnapshot();
-}
-
-// ---------------------------------------------------------------------------
-// Admin dashboard data — read-only snapshot of live rooms/players, pushed to
-// the /admin Socket.IO namespace on every state change.
-// ---------------------------------------------------------------------------
-function buildAdminSnapshot() {
-  const roomList = Object.values(rooms).map((r) => ({
-    id: r.id,
-    isPublic: r.isPublic,
-    maxPlayers: r.maxPlayers,
-    gameEnded: r.gameEnded,
-    winners: r.winners,
-    playerCount: Object.keys(r.players).length,
-    players: publicPlayerList(r)
-  }));
-
-  const publicRoom = roomList.find((r) => r.isPublic) || null;
-  const soloRooms = roomList.filter((r) => !r.isPublic);
-
-  return {
-    generatedAt: Date.now(),
-    totalRooms: roomList.length,
-    totalPlayers: roomList.reduce((sum, r) => sum + r.playerCount, 0),
-    multiPlayers: publicRoom ? publicRoom.playerCount : 0,
-    soloPlayers: soloRooms.reduce((sum, r) => sum + r.playerCount, 0),
-    publicRoom,
-    soloRooms
-  };
-}
-
-const adminIo = io.of("/admin");
-adminIo.use((socket, next) => {
-  const token = parseCookies(socket.handshake.headers.cookie)[ADMIN_COOKIE];
-  if (token && adminSessions.has(token)) return next();
-  next(new Error("unauthorized"));
-});
-adminIo.on("connection", (socket) => {
-  socket.emit("snapshot", buildAdminSnapshot());
-});
-
-function pushAdminSnapshot() {
-  adminIo.emit("snapshot", buildAdminSnapshot());
+  broadcastAdminUpdate();
 }
 
 function checkGameOverConditions(room) {
@@ -633,10 +705,127 @@ function resetRoom(room) {
 }
 
 // ---------------------------------------------------------------------------
+// Admin dashboard: read-only live snapshot of everything happening in-memory.
+// ---------------------------------------------------------------------------
+function buildAdminSnapshot() {
+  const roomList = Object.values(rooms);
+  const currentOnline = roomList.reduce((sum, r) => sum + Object.keys(r.players).length, 0);
+  globalStats.peakConcurrent = Math.max(globalStats.peakConcurrent, currentOnline);
+
+  const roomsOverview = roomList
+    .map((r) => ({
+      id: r.id,
+      isPublic: r.isPublic,
+      playerCount: Object.keys(r.players).length,
+      maxPlayers: r.maxPlayers,
+      gameEnded: r.gameEnded,
+      winnersCount: r.winners.length
+    }))
+    .sort((a, b) => (b.isPublic === a.isPublic ? 0 : b.isPublic ? 1 : -1));
+
+  const publicRoom = rooms[PUBLIC_ROOM_ID];
+
+  // Flat list of every player across every room (public + all solo rooms),
+  // used by the Live Management tab so admins can search/kick anyone.
+  const allPlayers = [];
+  roomList.forEach((r) => {
+    Object.values(r.players).forEach((p) => {
+      allPlayers.push({
+        socketId: p.id,
+        name: p.name,
+        avatar: p.avatar,
+        position: p.position,
+        finished: p.finished,
+        finishRank: p.finishRank,
+        roomId: r.id,
+        mode: r.isPublic ? "multi" : "solo"
+      });
+    });
+  });
+
+  const levelStatsArray = [];
+  for (let i = 1; i <= TOTAL_LEVELS; i++) {
+    const s = globalStats.levelStats[i];
+    const level = LEVELS[i - 1];
+    const attempts = s.correct + s.wrong;
+    levelStatsArray.push({
+      level: i,
+      category: level.category,
+      difficulty: level.difficulty,
+      correct: s.correct,
+      wrong: s.wrong,
+      attempts,
+      wrongRate: attempts > 0 ? Math.round((s.wrong / attempts) * 100) : 0
+    });
+  }
+
+  const toughestQuestions = [...levelStatsArray]
+    .filter((l) => l.attempts > 0)
+    .sort((a, b) => b.wrongRate - a.wrongRate || b.attempts - a.attempts)
+    .slice(0, 3);
+
+  return {
+    uptimeSeconds: Math.floor((Date.now() - SERVER_START_TIME) / 1000),
+    stats: {
+      totalJoins: globalStats.totalJoins,
+      soloJoins: globalStats.soloJoins,
+      multiJoins: globalStats.multiJoins,
+      totalFinishes: globalStats.totalFinishes,
+      soloFinishes: globalStats.soloFinishes,
+      multiFinishes: globalStats.multiFinishes,
+      currentOnline,
+      peakConcurrent: globalStats.peakConcurrent,
+      totalAnswers: globalStats.totalAnswers,
+      activeRoomCount: roomList.length
+    },
+    settings: {
+      maintenanceMode: MAINTENANCE_MODE,
+      maxPublicPlayers: MAX_PUBLIC_PLAYERS
+    },
+    onlineHistory,
+    roomsOverview,
+    allPlayers,
+    toughestQuestions,
+    publicRoom: publicRoom
+      ? {
+          id: publicRoom.id,
+          playerCount: Object.keys(publicRoom.players).length,
+          maxPlayers: publicRoom.maxPlayers,
+          gameEnded: publicRoom.gameEnded,
+          players: publicPlayerList(publicRoom),
+          winners: publicRoom.winners
+        }
+      : null,
+    levelStats: levelStatsArray
+  };
+}
+
+function broadcastAdminUpdate() {
+  io.to(ADMIN_ROOM).emit("adminUpdate", buildAdminSnapshot());
+}
+
+// Sample the current online-player count periodically so the Analytics tab
+// can render a real "players over time" chart instead of a static mock.
+setInterval(() => {
+  const total = Object.values(rooms).reduce((sum, r) => sum + Object.keys(r.players).length, 0);
+  onlineHistory.push({ t: Date.now(), count: total });
+  if (onlineHistory.length > 60) onlineHistory.shift(); // keep the last ~30 minutes at 30s intervals
+  broadcastAdminUpdate();
+}, 30000);
+
+// ---------------------------------------------------------------------------
 // Socket.IO handlers
 // ---------------------------------------------------------------------------
 io.on("connection", (socket) => {
   socket.on("join", ({ name, mode }) => {
+    if (MAINTENANCE_MODE) {
+      socket.emit(
+        "joinError",
+        "ระบบอยู่ระหว่างปิดปรับปรุงชั่วคราว กรุณาลองใหม่อีกครั้งในภายหลัง 🛠️"
+      );
+      return;
+    }
+
     let room;
 
     if (mode === "solo") {
@@ -654,7 +843,7 @@ io.on("connection", (socket) => {
       if (Object.keys(room.players).length >= room.maxPlayers) {
         socket.emit(
           "joinError",
-          "ห้องเต็มแล้ว (สูงสุด 20 คน) กรุณาลองใหม่ภายหลัง หรือเลือกเล่นโหมดคนเดียว"
+          `ห้องเต็มแล้ว (สูงสุด ${room.maxPlayers} คน) กรุณาลองใหม่ภายหลัง หรือเลือกเล่นโหมดคนเดียว`
         );
         return;
       }
@@ -666,6 +855,10 @@ io.on("connection", (socket) => {
 
     socket.join(room.id);
     socket.data.roomId = room.id;
+
+    globalStats.totalJoins++;
+    if (mode === "solo") globalStats.soloJoins++;
+    else globalStats.multiJoins++;
 
     socket.emit("joined", {
       self: player,
@@ -694,6 +887,10 @@ io.on("connection", (socket) => {
     const level = LEVELS[levelNumber - 1];
     const isCorrect = Number(answerIndex) === level.correctIndex;
 
+    globalStats.totalAnswers++;
+    if (isCorrect) globalStats.levelStats[levelNumber].correct++;
+    else globalStats.levelStats[levelNumber].wrong++;
+
     if (isCorrect) {
       player.position += 1;
 
@@ -703,6 +900,10 @@ io.on("connection", (socket) => {
         player.finished = true;
         player.finishTime = Date.now();
         justFinished = true;
+
+        globalStats.totalFinishes++;
+        if (room.isPublic) globalStats.multiFinishes++;
+        else globalStats.soloFinishes++;
 
         if (room.winners.length < MAX_WINNERS) {
           player.finishRank = room.winners.length + 1;
@@ -766,67 +967,79 @@ io.on("connection", (socket) => {
 
     if (!room.isPublic && Object.keys(room.players).length === 0) {
       delete rooms[roomId];
-      pushAdminSnapshot();
+      broadcastAdminUpdate();
       return;
     }
 
     broadcastState(room);
     checkGameOverConditions(room);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Admin routes
-// ---------------------------------------------------------------------------
-app.get("/admin", (req, res) => {
-  // Magic-link access: visiting /admin?key=<ADMIN_PASSWORD> logs you in
-  // instantly (sets the same session cookie the password form would),
-  // so the link itself can be bookmarked/shared instead of typing a password.
-  const key = req.query.key;
-  if (key && key === ADMIN_PASSWORD && !isAdminAuthed(req)) {
-    const token = crypto.randomBytes(24).toString("hex");
-    adminSessions.add(token);
-    res.setHeader(
-      "Set-Cookie",
-      `${ADMIN_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`
-    );
-  }
-  res.sendFile(path.join(__dirname, "admin.html"));
-});
+  // --- Admin dashboard channel -----------------------------------------
+  // Simple shared-passcode gate for local/internal monitoring only.
+  socket.on("adminLogin", (passcode) => {
+    if (passcode !== ADMIN_PASSCODE) {
+      socket.emit("adminLoginResult", { success: false, message: "รหัสผ่านไม่ถูกต้อง" });
+      return;
+    }
+    socket.data.isAdmin = true;
+    socket.join(ADMIN_ROOM);
+    socket.emit("adminLoginResult", { success: true });
+    socket.emit("adminUpdate", buildAdminSnapshot());
+  });
 
-app.post("/admin/api/login", (req, res) => {
-  const password = (req.body && req.body.password) || "";
-  if (password !== ADMIN_PASSWORD) {
-    return res.status(401).json({ ok: false, error: "รหัสผ่านไม่ถูกต้อง" });
-  }
-  const token = crypto.randomBytes(24).toString("hex");
-  adminSessions.add(token);
-  res.setHeader(
-    "Set-Cookie",
-    `${ADMIN_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`
-  );
-  res.json({ ok: true });
-});
+  socket.on("adminRequestSnapshot", () => {
+    if (!socket.data.isAdmin) return;
+    socket.emit("adminUpdate", buildAdminSnapshot());
+  });
 
-app.post("/admin/api/logout", (req, res) => {
-  const token = adminTokenFrom(req);
-  if (token) adminSessions.delete(token);
-  res.setHeader("Set-Cookie", `${ADMIN_COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
-  res.json({ ok: true });
-});
+  socket.on("adminRestartPublicRoom", () => {
+    if (!socket.data.isAdmin) return;
+    const room = rooms[PUBLIC_ROOM_ID];
+    if (room) resetRoom(room);
+    broadcastAdminUpdate();
+  });
 
-app.get("/admin/api/session", (req, res) => {
-  res.json({ authenticated: isAdminAuthed(req) });
-});
+  // Tab 2 — Live Management: forcibly disconnect a specific player.
+  socket.on("adminKickPlayer", ({ socketId }) => {
+    if (!socket.data.isAdmin || !socketId) return;
+    const targetSocket = io.sockets.sockets.get(socketId);
+    if (!targetSocket) return;
+    targetSocket.emit("kicked", { message: "คุณถูกนำออกจากเกมโดยผู้ดูแลระบบ" });
+    targetSocket.disconnect(true); // triggers the normal "disconnect" cleanup below
+  });
 
-app.get("/admin/api/levels", requireAdmin, (req, res) => {
-  res.json({ totalLevels: TOTAL_LEVELS, categories: CATEGORY_NAMES, levels: LEVELS });
-});
+  // Tab 2 — Live Management: broadcast an announcement to every connected player.
+  socket.on("adminBroadcast", ({ message }) => {
+    if (!socket.data.isAdmin) return;
+    const text = (message || "").toString().trim().slice(0, 300);
+    if (!text) return;
+    io.except(ADMIN_ROOM).emit("globalAnnouncement", { message: text });
+  });
 
-app.get("/admin/api/snapshot", requireAdmin, (req, res) => {
-  res.json(buildAdminSnapshot());
+  // Tab 4 — System Settings: maintenance mode toggle.
+  socket.on("adminSetMaintenanceMode", ({ enabled }) => {
+    if (!socket.data.isAdmin) return;
+    MAINTENANCE_MODE = !!enabled;
+    broadcastAdminUpdate();
+  });
+
+  // Tab 4 — System Settings: adjust max players allowed in the public room.
+  socket.on("adminSetMaxPlayers", ({ value }) => {
+    if (!socket.data.isAdmin) return;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 50) return;
+    MAX_PUBLIC_PLAYERS = n;
+    const publicRoom = rooms[PUBLIC_ROOM_ID];
+    if (publicRoom) {
+      publicRoom.maxPlayers = n;
+      broadcastState(publicRoom);
+    }
+    broadcastAdminUpdate();
+  });
 });
 
 server.listen(PORT, () => {
   console.log(`🎗️  รู้มั้ย ใครเสี่ยงมะเร็งเต้านม (40 levels) running on http://localhost:${PORT}`);
+  console.log(`🛠️  Admin dashboard: http://localhost:${PORT}/admin.html (passcode: ${ADMIN_PASSCODE === "admin123" ? "admin123 [default — set ADMIN_PASSCODE env var to change]" : "set via ADMIN_PASSCODE env var"})`);
 });

@@ -6,259 +6,552 @@
 <title>Admin Dashboard — รู้มั้ย ใครเสี่ยงมะเร็งเต้านม</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="/socket.io/socket.io.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   * { font-family: 'Prompt', sans-serif; box-sizing: border-box; }
-  body { background-color: #fdf2f8; min-height: 100vh; margin: 0; }
+  body {
+    background-color: #fdf2f8;
+    background-image: radial-gradient(#fbcfe8 1px, transparent 1px);
+    background-size: 20px 20px;
+    min-height: 100vh;
+    margin: 0;
+  }
   .screen { display: none; }
   .screen.active { display: block; }
-  .tab-btn.active { background-color: #ec4899; color: white; }
-  .correct-opt { background-color: #d1fae5 !important; border-color: #34d399 !important; }
+  .fade-in { animation: fadeIn 0.3s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .tab-btn { transition: all 0.15s ease; border-bottom: 3px solid transparent; }
+  .tab-btn.active { border-bottom-color: #ec4899; color: #db2777; }
+  .tab-btn:not(.active) { color: #9ca3af; }
+  .card { background: white; border: 2px solid #fbcfe8; border-radius: 1rem; }
+  .btn-press { transition: all 0.15s ease; }
+  .btn-press:active { transform: scale(0.96); }
+  .toggle-track { width: 48px; height: 26px; border-radius: 9999px; transition: background-color 0.2s ease; cursor: pointer; position: relative; }
+  .toggle-track.on { background: #ec4899; }
+  .toggle-track.off { background: #d1d5db; }
+  .toggle-thumb { width: 20px; height: 20px; border-radius: 9999px; background: white; position: absolute; top: 3px; transition: left 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+  .toggle-track.on .toggle-thumb { left: 25px; }
+  .toggle-track.off .toggle-thumb { left: 3px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { text-align: left; color: #9d174d; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #fbcfe8; background: #fdf2f8; position: sticky; top: 0; }
+  td { padding: 7px 10px; border-bottom: 1px solid #fce7f3; }
+  tr:hover td { background: #fdf2f8; }
+  .scroll-box { max-height: 380px; overflow-y: auto; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #f9a8d4; border-radius: 4px; }
+  .badge { padding: 2px 9px; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; }
+  .accordion-header { cursor: pointer; transition: background 0.15s ease; }
+  .accordion-header:hover { background: #fdf2f8; }
+  .accordion-body { display: none; }
+  .accordion-body.open { display: block; }
+  .accordion-chevron { transition: transform 0.2s ease; display: inline-block; }
+  .accordion-chevron.rotated { transform: rotate(90deg); }
 </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-3 md:p-6">
 
-  <!-- LOGIN SCREEN -->
-  <div id="login-screen" class="screen active w-full max-w-sm mx-auto mt-24">
-    <div class="bg-white rounded-3xl shadow-xl p-8 border-4 border-pink-200 text-center">
-      <div class="text-4xl mb-3">🔐</div>
-      <h1 class="text-lg font-bold text-gray-800 mb-1">Admin Dashboard</h1>
-      <p class="text-gray-400 text-xs mb-5">รู้มั้ย ใครเสี่ยงมะเร็งเต้านม</p>
-      <div class="relative mb-3">
-        <input id="password-input" type="password" placeholder="รหัสผ่านแอดมิน"
-          class="w-full border-2 border-pink-200 rounded-full px-5 py-3 pr-12 text-center focus:outline-none focus:border-pink-400 text-gray-700"/>
-        <button type="button" onclick="togglePasswordVisibility()" aria-label="แสดง/ซ่อนรหัสผ่าน"
-          class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-pink-500 text-sm">
-          <span id="toggle-password-icon">👁️</span>
-        </button>
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="screen active fade-in max-w-sm mx-auto mt-20">
+  <div class="card p-8 text-center shadow-xl">
+    <div class="text-4xl mb-3">🛠️</div>
+    <h1 class="text-lg font-bold text-gray-800 mb-1">Admin Dashboard</h1>
+    <p class="text-gray-500 text-sm mb-5">รู้มั้ย ใครเสี่ยงมะเร็งเต้านม</p>
+    <input id="passcode-input" type="password" placeholder="รหัสผ่านแอดมิน"
+      class="w-full border-2 border-pink-200 rounded-full px-5 py-2.5 text-center mb-3 focus:outline-none focus:border-pink-400"/>
+    <button onclick="doLogin()" class="btn-press w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-2.5 rounded-full transition-colors">
+      เข้าสู่ระบบ
+    </button>
+    <p id="login-error" class="text-red-500 text-xs mt-3 hidden"></p>
+    <p class="text-gray-400 text-xs mt-6 leading-relaxed">
+      ⚠️ สำหรับใช้งานภายใน/ทดสอบเท่านั้น รหัสผ่านกำหนดผ่าน <code class="bg-pink-50 px-1 rounded">ADMIN_PASSCODE</code> environment variable
+    </p>
+  </div>
+</div>
+
+<!-- DASHBOARD SCREEN -->
+<div id="dashboard-screen" class="screen max-w-6xl mx-auto">
+
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div>
+      <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">🛠️ Admin Dashboard</h1>
+      <p class="text-gray-400 text-xs flex items-center gap-2 mt-0.5">
+        <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span> เชื่อมต่อสด • อัปเดตล่าสุด: <span id="last-updated">-</span>
+      </p>
+    </div>
+    <button onclick="requestSnapshot()" class="btn-press bg-white border-2 border-pink-200 hover:bg-pink-50 text-pink-600 text-sm px-4 py-2 rounded-full font-medium transition-colors">🔄 รีเฟรช</button>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="flex gap-6 border-b-2 border-pink-100 mb-5 overflow-x-auto">
+    <button class="tab-btn active font-semibold text-sm py-3 px-1 whitespace-nowrap" data-tab="tab-analytics" onclick="switchTab('tab-analytics')">📊 ภาพรวมและสถิติ</button>
+    <button class="tab-btn font-semibold text-sm py-3 px-1 whitespace-nowrap" data-tab="tab-live" onclick="switchTab('tab-live')">👥 ห้อง/ผู้เล่นสด</button>
+    <button class="tab-btn font-semibold text-sm py-3 px-1 whitespace-nowrap" data-tab="tab-cms" onclick="switchTab('tab-cms')">📝 คลังคำถาม 40 ด่าน</button>
+    <button class="tab-btn font-semibold text-sm py-3 px-1 whitespace-nowrap" data-tab="tab-settings" onclick="switchTab('tab-settings')">⚙️ ตั้งค่าระบบ</button>
+  </div>
+
+  <!-- ============== TAB 1: ANALYTICS & OVERVIEW ============== -->
+  <div id="tab-analytics" class="tab-panel active fade-in">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+      <div class="card p-4">
+        <div class="text-2xl font-bold text-pink-600" id="stat-online">0</div>
+        <div class="text-xs text-gray-500">ผู้เล่นออนไลน์ทั้งหมด</div>
       </div>
-      <button id="login-btn" onclick="login()"
-        class="w-full bg-pink-500 hover:bg-pink-600 text-white font-semibold py-3 rounded-full shadow-lg transition-colors">
-        เข้าสู่ระบบ
-      </button>
-      <p id="login-error" class="text-red-500 text-sm mt-3 hidden"></p>
+      <div class="card p-4">
+        <div class="text-2xl font-bold text-pink-600" id="stat-rooms">0</div>
+        <div class="text-xs text-gray-500">ห้องที่ใช้งานอยู่ (Active Rooms)</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-2xl font-bold text-pink-600" id="stat-completed">0</div>
+        <div class="text-xs text-gray-500">เกมที่เล่นจบทั้งหมด (สะสม)</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+      <div class="card p-4">
+        <h3 class="font-semibold text-sm text-gray-700 mb-3">📈 ผู้เล่นออนไลน์ตามเวลา (Players Over Time)</h3>
+        <canvas id="online-chart" height="180"></canvas>
+      </div>
+
+      <div class="card p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold text-sm text-gray-700">🔥 ด่านที่ยากที่สุด (Toughest Questions Top 3)</h3>
+        </div>
+        <table>
+          <thead><tr><th>อันดับ</th><th>ด่าน</th><th>หมวด</th><th>% ตอบผิด</th></tr></thead>
+          <tbody id="toughest-body">
+            <tr><td colspan="4" class="text-gray-400 italic text-center py-4">ยังไม่มีข้อมูลเพียงพอ</td></tr>
+          </tbody>
+        </table>
+        <p class="text-xs text-gray-400 mt-3">คำนวณจากอัตราการตอบผิดจริงของผู้เล่นทุกคนที่เคยตอบด่านนั้น</p>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-sm text-gray-700">📋 สถิติครบทุกด่าน</h3>
+        <button onclick="exportLevelStatsCSV()" class="btn-press bg-pink-500 hover:bg-pink-600 text-white text-xs font-semibold px-4 py-2 rounded-full transition-colors">⬇️ Export to CSV</button>
+      </div>
+      <div class="scroll-box">
+        <table>
+          <thead><tr><th>ด่าน</th><th>หมวด</th><th>ระดับ</th><th>ตอบถูก</th><th>ตอบผิด</th><th>รวม</th><th>% ตอบผิด</th></tr></thead>
+          <tbody id="full-level-stats-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <!-- DASHBOARD SCREEN -->
-  <div id="dashboard-screen" class="screen w-full max-w-6xl mx-auto">
-    <div class="flex items-center justify-between mb-5">
-      <h1 class="text-xl md:text-2xl font-bold text-gray-800">🎗️ Admin Dashboard</h1>
-      <button onclick="logout()" class="text-sm bg-white border-2 border-pink-200 text-pink-600 px-4 py-2 rounded-full hover:bg-pink-50">
-        ออกจากระบบ
-      </button>
+  <!-- ============== TAB 2: LIVE MANAGEMENT ============== -->
+  <div id="tab-live" class="tab-panel fade-in">
+    <div class="card p-4 mb-4">
+      <h3 class="font-semibold text-sm text-gray-700 mb-3">📢 ส่งประกาศถึงผู้เล่นทุกคน (Broadcast Message)</h3>
+      <div class="flex gap-2">
+        <input id="broadcast-input" type="text" maxlength="300" placeholder="พิมพ์ข้อความประกาศ เช่น 'เซิร์ฟเวอร์จะปิดปรับปรุงใน 5 นาที'..."
+          class="flex-1 border-2 border-pink-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:border-pink-400"/>
+        <button onclick="sendBroadcast()" class="btn-press bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-full transition-colors">ส่งประกาศ</button>
+      </div>
+      <p id="broadcast-status" class="text-xs text-green-600 mt-2 hidden">✅ ส่งประกาศแล้ว</p>
     </div>
 
-    <div class="flex gap-2 mb-5 flex-wrap">
-      <button class="tab-btn active px-4 py-2 rounded-full text-sm font-medium border-2 border-pink-200 text-pink-600" data-tab="overview" onclick="showTab('overview')">ภาพรวม</button>
-      <button class="tab-btn px-4 py-2 rounded-full text-sm font-medium border-2 border-pink-200 text-pink-600" data-tab="rooms" onclick="showTab('rooms')">ห้อง/ผู้เล่นสด</button>
-      <button class="tab-btn px-4 py-2 rounded-full text-sm font-medium border-2 border-pink-200 text-pink-600" data-tab="levels" onclick="showTab('levels')">คลังคำถาม (40 ด่าน)</button>
-    </div>
-
-    <!-- OVERVIEW TAB -->
-    <div id="tab-overview" class="tab-panel">
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
-          <div class="text-2xl font-bold text-pink-600" id="stat-total-players">0</div>
-          <div class="text-xs text-gray-500 mt-1">ผู้เล่นออนไลน์ทั้งหมด</div>
-        </div>
-        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
-          <div class="text-2xl font-bold text-pink-600" id="stat-total-rooms">0</div>
-          <div class="text-xs text-gray-500 mt-1">ห้องที่ใช้งานอยู่</div>
-        </div>
-        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
-          <div class="text-2xl font-bold text-pink-600" id="stat-multi-players">0</div>
-          <div class="text-xs text-gray-500 mt-1">ผู้เล่นในห้องแข่งกลาง</div>
-        </div>
-        <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 text-center">
-          <div class="text-2xl font-bold text-pink-600" id="stat-solo-players">0</div>
-          <div class="text-xs text-gray-500 mt-1">ผู้เล่นโหมดคนเดียว</div>
-        </div>
+    <div class="card p-4 mb-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h3 class="font-semibold text-sm text-gray-700">👥 ผู้เล่นที่ออนไลน์อยู่ตอนนี้ (<span id="live-player-count">0</span>)</h3>
+        <button onclick="confirmRestartPublicRoom()" class="btn-press bg-red-500 hover:bg-red-600 text-white text-xs font-semibold px-4 py-2 rounded-full transition-colors">⛔ บังคับเริ่มห้องรวมใหม่</button>
       </div>
-
-      <div class="bg-white rounded-2xl shadow-lg border-2 border-pink-200 p-4">
-        <h3 class="text-pink-600 font-bold text-sm mb-2">🏆 ห้องแข่งกลาง (public-race)</h3>
-        <div id="public-room-summary" class="text-sm text-gray-600">ยังไม่มีห้องแข่งกลางที่ใช้งานอยู่</div>
+      <input id="player-search" type="text" placeholder="🔍 ค้นหาผู้เล่นด้วยชื่อ..." oninput="renderPlayersTable()"
+        class="w-full border-2 border-pink-200 rounded-full px-4 py-2 text-sm mb-3 focus:outline-none focus:border-pink-400"/>
+      <div class="scroll-box">
+        <table>
+          <thead><tr><th>ชื่อ</th><th>อวตาร</th><th>ด่านปัจจุบัน</th><th>โหมด</th><th>Socket ID</th><th>จัดการ</th></tr></thead>
+          <tbody id="live-players-body"><tr><td colspan="6" class="text-gray-400 italic text-center py-4">ไม่มีผู้เล่นออนไลน์</td></tr></tbody>
+        </table>
       </div>
-    </div>
-
-    <!-- ROOMS TAB -->
-    <div id="tab-rooms" class="tab-panel hidden">
-      <div class="mb-4">
-        <h3 class="text-pink-600 font-bold text-sm mb-2">🏆 ห้องแข่งกลาง</h3>
-        <div id="public-room-table" class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 overflow-x-auto"></div>
-      </div>
-      <div>
-        <h3 class="text-pink-600 font-bold text-sm mb-2">🧍 ห้องเล่นคนเดียว (<span id="solo-room-count">0</span>)</h3>
-        <div id="solo-rooms-table" class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4 overflow-x-auto"></div>
-      </div>
-    </div>
-
-    <!-- LEVELS TAB -->
-    <div id="tab-levels" class="tab-panel hidden">
-      <input id="level-search" type="text" placeholder="ค้นหาด่าน / หมวด / ชื่อเคส..."
-        class="w-full border-2 border-pink-200 rounded-full px-5 py-2 mb-4 focus:outline-none focus:border-pink-400 text-gray-700 text-sm"
-        oninput="renderLevels()"/>
-      <div id="levels-list" class="space-y-3"></div>
     </div>
   </div>
+
+  <!-- ============== TAB 3: QUESTION CMS ============== -->
+  <div id="tab-cms" class="tab-panel fade-in">
+    <div class="card p-4 mb-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+        <h3 class="font-semibold text-sm text-gray-700">📝 คลังคำถามทั้ง 40 ด่าน</h3>
+        <input id="cms-search" type="text" placeholder="🔍 ค้นหาด้วยเลขด่านหรือหมวด..." oninput="renderCmsList()"
+          class="border-2 border-pink-200 rounded-full px-4 py-1.5 text-sm w-64 focus:outline-none focus:border-pink-400"/>
+      </div>
+      <p class="text-xs text-gray-400">แก้ไขแล้วกด "บันทึกการเปลี่ยนแปลง" ต่อด่าน — ข้อมูลจะถูกบันทึกลงไฟล์บนเซิร์ฟเวอร์ทันที และมีผลกับผู้เล่นใหม่ที่มาถึงด่านนั้น</p>
+    </div>
+    <div id="cms-list" class="space-y-2"></div>
+  </div>
+
+  <!-- ============== TAB 4: SYSTEM SETTINGS ============== -->
+  <div id="tab-settings" class="tab-panel fade-in">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="card p-5">
+        <h3 class="font-semibold text-sm text-gray-700 mb-1">👥 จำนวนผู้เล่นสูงสุดต่อห้อง (Max Players per Room)</h3>
+        <p class="text-xs text-gray-400 mb-3">ปรับค่านี้จะมีผลกับห้องรวม (Public Room) ทันที รวมถึงห้องใหม่ที่จะถูกสร้างในอนาคต</p>
+        <div class="flex gap-2">
+          <input id="max-players-input" type="number" min="1" max="50" value="20"
+            class="w-28 border-2 border-pink-200 rounded-full px-4 py-2 text-center focus:outline-none focus:border-pink-400"/>
+          <button onclick="saveMaxPlayers()" class="btn-press bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-full transition-colors">บันทึก</button>
+        </div>
+        <p id="max-players-status" class="text-xs text-green-600 mt-2 hidden">✅ อัปเดตแล้ว</p>
+      </div>
+
+      <div class="card p-5">
+        <h3 class="font-semibold text-sm text-gray-700 mb-1">🛠️ โหมดซ่อมบำรุง (Maintenance Mode)</h3>
+        <p class="text-xs text-gray-400 mb-4">เมื่อเปิดใช้งาน ผู้เล่นใหม่ที่พยายามเข้าร่วมเกมจะได้รับข้อความปฏิเสธทันที (ผู้เล่นที่กำลังเล่นอยู่แล้วจะไม่ถูกตัดการเชื่อมต่อ)</p>
+        <div class="flex items-center gap-3">
+          <div id="maintenance-toggle" class="toggle-track off" onclick="toggleMaintenanceMode()">
+            <div class="toggle-thumb"></div>
+          </div>
+          <span id="maintenance-label" class="text-sm font-medium text-gray-600">ปิดอยู่ (ผู้เล่นเข้าเกมได้ตามปกติ)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
 
 <script>
-  let allLevels = [];
+  const socket = io();
+  let latestSnapshot = null;
+  let adminPasscode = '';
+  let onlineChart = null;
+  let cmsLevels = null; // full editable level data from GET /api/admin/levels
+  const openAccordions = new Set();
 
-  async function checkSession() {
-    const res = await fetch('/admin/api/session');
-    const data = await res.json();
-    if (data.authenticated) enterDashboard();
-    else showScreen('login-screen');
+  function doLogin() {
+    adminPasscode = document.getElementById('passcode-input').value;
+    socket.emit('adminLogin', adminPasscode);
   }
+  document.getElementById('passcode-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
 
-  function showScreen(id) {
-    document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
-  }
-
-  async function login() {
-    const password = document.getElementById('password-input').value;
-    const errorEl = document.getElementById('login-error');
-    errorEl.classList.add('hidden');
-    const res = await fetch('/admin/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      enterDashboard();
+  socket.on('adminLoginResult', (res) => {
+    if (res.success) {
+      document.getElementById('login-screen').classList.remove('active');
+      document.getElementById('dashboard-screen').classList.add('active');
+      loadCmsLevels();
     } else {
-      errorEl.textContent = data.error || 'เข้าสู่ระบบไม่สำเร็จ';
-      errorEl.classList.remove('hidden');
+      const err = document.getElementById('login-error');
+      err.textContent = res.message;
+      err.classList.remove('hidden');
     }
+  });
+
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    document.querySelector(`.tab-btn[data-tab="${tabId}"]`).classList.add('active');
   }
 
-  document.getElementById('password-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
-
-  function togglePasswordVisibility() {
-    const input = document.getElementById('password-input');
-    const icon = document.getElementById('toggle-password-icon');
-    const showing = input.type === 'text';
-    input.type = showing ? 'password' : 'text';
-    icon.textContent = showing ? '👁️' : '🙈';
-  }
-
-  async function logout() {
-    await fetch('/admin/api/logout', { method: 'POST' });
-    location.reload();
-  }
-
-  async function enterDashboard() {
-    showScreen('dashboard-screen');
-    await loadLevels();
-    connectLiveFeed();
-  }
-
-  async function loadLevels() {
-    const res = await fetch('/admin/api/levels');
-    if (!res.ok) return;
-    const data = await res.json();
-    allLevels = data.levels;
-    renderLevels();
-  }
+  function requestSnapshot() { socket.emit('adminRequestSnapshot'); }
 
   function escapeHtml(str) {
     const div = document.createElement('div');
-    div.textContent = str == null ? '' : String(str);
+    div.textContent = str;
     return div.innerHTML;
   }
 
-  function renderLevels() {
-    const query = document.getElementById('level-search').value.trim().toLowerCase();
-    const list = document.getElementById('levels-list');
-    const filtered = allLevels.filter(l => {
-      if (!query) return true;
-      return [l.level, l.category, l.difficulty, l.name, l.question].join(' ').toLowerCase().includes(query);
-    });
-    list.innerHTML = filtered.map(l => `
-      <div class="bg-white rounded-2xl shadow border-2 border-pink-200 p-4">
-        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-          <span class="font-bold text-gray-800">ด่านที่ ${l.level} — ${escapeHtml(l.category)}</span>
-          <span class="text-xs bg-pink-100 text-pink-600 px-3 py-1 rounded-full">${escapeHtml(l.difficulty)} · ${escapeHtml(l.mascot)}</span>
-        </div>
-        <div class="text-sm text-gray-700 mb-2"><b>${l.avatar} ${escapeHtml(l.name)}</b> — ${escapeHtml(l.desc)}</div>
-        <div class="text-sm text-gray-800 font-medium mb-2">${escapeHtml(l.question)}</div>
-        <div class="space-y-1 mb-2">
-          ${l.options.map((opt, i) => `
-            <div class="text-sm px-3 py-1.5 rounded-lg border ${i === l.correctIndex ? 'correct-opt' : 'border-gray-200'}">
-              ${i === l.correctIndex ? '✅' : '▫️'} ${escapeHtml(opt)}
-            </div>`).join('')}
-        </div>
-        <div class="text-xs text-gray-500 bg-gray-50 rounded-lg p-2">${escapeHtml(l.explanation)}</div>
+  // ---------------- Live snapshot handling ----------------
+  socket.on('adminUpdate', (snapshot) => {
+    latestSnapshot = snapshot;
+    document.getElementById('last-updated').textContent = new Date().toLocaleTimeString('th-TH');
+
+    // Tab 1
+    document.getElementById('stat-online').textContent = snapshot.stats.currentOnline;
+    document.getElementById('stat-rooms').textContent = snapshot.stats.activeRoomCount;
+    document.getElementById('stat-completed').textContent = snapshot.stats.totalFinishes;
+    renderToughest(snapshot.toughestQuestions);
+    renderFullLevelStats(snapshot.levelStats);
+    renderChart(snapshot.onlineHistory);
+
+    // Tab 2
+    document.getElementById('live-player-count').textContent = snapshot.allPlayers.length;
+    renderPlayersTable();
+
+    // Tab 4
+    if (!maxPlayersFocused) document.getElementById('max-players-input').value = snapshot.settings.maxPublicPlayers;
+    setMaintenanceUI(snapshot.settings.maintenanceMode);
+  });
+
+  let maxPlayersFocused = false;
+  document.getElementById('max-players-input').addEventListener('focus', () => maxPlayersFocused = true);
+  document.getElementById('max-players-input').addEventListener('blur', () => maxPlayersFocused = false);
+
+  // ---------------- Tab 1: Analytics ----------------
+  function renderToughest(list) {
+    const body = document.getElementById('toughest-body');
+    if (!list || list.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" class="text-gray-400 italic text-center py-4">ยังไม่มีข้อมูลเพียงพอ</td></tr>';
+      return;
+    }
+    const medals = ['🥇','🥈','🥉'];
+    body.innerHTML = list.map((l, i) => `
+      <tr>
+        <td>${medals[i] || '#'+(i+1)}</td>
+        <td>ด่าน ${l.level}</td>
+        <td class="text-gray-500">${escapeHtml(l.category)}</td>
+        <td><span class="badge ${l.wrongRate >= 50 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}">${l.wrongRate}%</span></td>
+      </tr>
+    `).join('');
+  }
+
+  function renderFullLevelStats(levels) {
+    const body = document.getElementById('full-level-stats-body');
+    body.innerHTML = levels.map(l => `
+      <tr>
+        <td>${l.level}</td>
+        <td class="text-gray-500">${escapeHtml(l.category)}</td>
+        <td>${escapeHtml(l.difficulty)}</td>
+        <td class="text-green-600">${l.correct}</td>
+        <td class="text-red-500">${l.wrong}</td>
+        <td>${l.attempts}</td>
+        <td>${l.attempts > 0 ? `<span class="badge ${l.wrongRate >= 50 ? 'bg-red-100 text-red-600' : l.wrongRate >= 25 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}">${l.wrongRate}%</span>` : '<span class="text-gray-300">-</span>'}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderChart(history) {
+    const ctx = document.getElementById('online-chart');
+    const labels = (history || []).map(h => new Date(h.t).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
+    const data = (history || []).map(h => h.count);
+
+    if (!onlineChart) {
+      onlineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'ผู้เล่นออนไลน์',
+            data,
+            borderColor: '#ec4899',
+            backgroundColor: 'rgba(236,72,153,0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+      });
+    } else {
+      onlineChart.data.labels = labels;
+      onlineChart.data.datasets[0].data = data;
+      onlineChart.update();
+    }
+  }
+
+  function exportLevelStatsCSV() {
+    if (!latestSnapshot) return;
+    const rows = [['Level','Category','Difficulty','Correct','Wrong','Attempts','WrongRate%']];
+    latestSnapshot.levelStats.forEach(l => rows.push([l.level, l.category, l.difficulty, l.correct, l.wrong, l.attempts, l.wrongRate]));
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `level-stats-${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---------------- Tab 2: Live Management ----------------
+  function renderPlayersTable() {
+    if (!latestSnapshot) return;
+    const search = document.getElementById('player-search').value.trim().toLowerCase();
+    const filtered = latestSnapshot.allPlayers.filter(p => !search || p.name.toLowerCase().includes(search));
+    const body = document.getElementById('live-players-body');
+
+    if (filtered.length === 0) {
+      body.innerHTML = `<tr><td colspan="6" class="text-gray-400 italic text-center py-4">${search ? 'ไม่พบผู้เล่นที่ตรงกับคำค้นหา' : 'ไม่มีผู้เล่นออนไลน์'}</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = filtered.map(p => `
+      <tr>
+        <td>${escapeHtml(p.name)}${p.finished ? ' 🏁' : ''}</td>
+        <td>${p.avatar}</td>
+        <td>${p.finished ? '40/40' : (p.position + 1) + '/40'}</td>
+        <td><span class="badge ${p.mode === 'multi' ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'}">${p.mode === 'multi' ? 'แข่งหลายคน' : 'คนเดียว'}</span></td>
+        <td class="text-gray-400 text-xs">${escapeHtml(p.socketId.slice(0, 10))}…</td>
+        <td><button onclick="kickPlayer('${p.socketId}', '${escapeHtml(p.name).replace(/'/g, "\\'")}')" class="btn-press bg-red-500 hover:bg-red-600 text-white text-xs font-semibold px-3 py-1 rounded-full transition-colors">เตะออก</button></td>
+      </tr>
+    `).join('');
+  }
+
+  function kickPlayer(socketId, name) {
+    if (confirm(`ยืนยันเตะผู้เล่น "${name}" ออกจากเกม?`)) {
+      socket.emit('adminKickPlayer', { socketId });
+    }
+  }
+
+  function sendBroadcast() {
+    const input = document.getElementById('broadcast-input');
+    const message = input.value.trim();
+    if (!message) return;
+    socket.emit('adminBroadcast', { message });
+    input.value = '';
+    const status = document.getElementById('broadcast-status');
+    status.classList.remove('hidden');
+    setTimeout(() => status.classList.add('hidden'), 2500);
+  }
+
+  function confirmRestartPublicRoom() {
+    if (confirm('ยืนยันบังคับเริ่มห้องรวม (Public Room) ใหม่? ผู้เล่นทุกคนในห้องรวมจะถูกรีเซ็ตความคืบหน้า')) {
+      socket.emit('adminRestartPublicRoom');
+    }
+  }
+
+  // ---------------- Tab 3: Question CMS ----------------
+  async function loadCmsLevels() {
+    try {
+      const res = await fetch('/api/admin/levels', { headers: { 'x-admin-passcode': adminPasscode } });
+      if (!res.ok) throw new Error('โหลดข้อมูลไม่สำเร็จ');
+      const data = await res.json();
+      cmsLevels = data.levels;
+      renderCmsList();
+    } catch (err) {
+      document.getElementById('cms-list').innerHTML = `<div class="card p-4 text-red-500 text-sm">โหลดคลังคำถามไม่สำเร็จ: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function renderCmsList() {
+    if (!cmsLevels) return;
+    const search = document.getElementById('cms-search').value.trim().toLowerCase();
+    const filtered = cmsLevels.filter(l =>
+      !search || String(l.level).includes(search) || l.category.toLowerCase().includes(search) || l.mascot.toLowerCase().includes(search)
+    );
+
+    const container = document.getElementById('cms-list');
+    container.innerHTML = filtered.map(l => cmsAccordionHTML(l)).join('');
+  }
+
+  function cmsAccordionHTML(l) {
+    const isOpen = openAccordions.has(l.level);
+    const optionsHTML = l.options.map((opt, i) => `
+      <div class="flex items-center gap-2 mb-2">
+        <input type="radio" name="correct-${l.level}" value="${i}" ${i === l.correctIndex ? 'checked' : ''} class="accent-pink-500"/>
+        <input type="text" value="${escapeHtml(opt)}" data-option-idx="${i}" id="opt-${l.level}-${i}"
+          class="flex-1 border-2 border-pink-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-pink-400"/>
       </div>
-    `).join('') || '<p class="text-gray-400 text-sm text-center">ไม่พบด่านที่ตรงกับคำค้นหา</p>';
+    `).join('');
+
+    return `
+      <div class="card overflow-hidden">
+        <div class="accordion-header flex items-center justify-between px-4 py-3" onclick="toggleAccordion(${l.level})">
+          <div class="flex items-center gap-3">
+            <span class="accordion-chevron ${isOpen ? 'rotated' : ''}" id="chevron-${l.level}">▶</span>
+            <span class="font-semibold text-sm text-gray-800">ด่านที่ ${l.level}</span>
+            <span class="badge bg-pink-100 text-pink-600">${escapeHtml(l.difficulty)}</span>
+            <span class="text-xs text-gray-400">${escapeHtml(l.category)} • ${escapeHtml(l.mascot)}</span>
+          </div>
+        </div>
+        <div class="accordion-body ${isOpen ? 'open' : ''} px-4 pb-4" id="body-${l.level}">
+          <label class="text-xs font-semibold text-gray-500">คำถาม (Question)</label>
+          <textarea id="question-${l.level}" rows="2" class="w-full border-2 border-pink-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-pink-400">${escapeHtml(l.question)}</textarea>
+
+          <label class="text-xs font-semibold text-gray-500">ตัวเลือก (Choices) — เลือกวงกลมหน้าข้อที่ถูกต้อง</label>
+          <div id="options-${l.level}" class="mb-2">${optionsHTML}</div>
+          <button onclick="addOption(${l.level})" class="text-xs text-pink-500 hover:text-pink-600 font-medium mb-3">+ เพิ่มตัวเลือก</button>
+
+          <label class="text-xs font-semibold text-gray-500">คำอธิบายเชิงความรู้ (Educational Feedback)</label>
+          <textarea id="explanation-${l.level}" rows="3" class="w-full border-2 border-pink-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-pink-400">${escapeHtml(l.explanation)}</textarea>
+
+          <div class="flex items-center gap-3">
+            <button onclick="saveLevel(${l.level})" class="btn-press bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-full transition-colors">💾 บันทึกการเปลี่ยนแปลง</button>
+            <span id="save-status-${l.level}" class="text-xs hidden"></span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
-  function showTab(name) {
-    document.querySelectorAll('.tab-panel').forEach(el => el.classList.add('hidden'));
-    document.getElementById('tab-' + name).classList.remove('hidden');
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.toggle('active', el.dataset.tab === name));
+  function toggleAccordion(level) {
+    const body = document.getElementById('body-' + level);
+    const chevron = document.getElementById('chevron-' + level);
+    const isOpen = body.classList.toggle('open');
+    chevron.classList.toggle('rotated', isOpen);
+    if (isOpen) openAccordions.add(level); else openAccordions.delete(level);
   }
 
-  function connectLiveFeed() {
-    const socket = io('/admin');
-    socket.on('snapshot', renderSnapshot);
-    socket.on('connect_error', () => {
-      showScreen('login-screen');
-    });
+  function addOption(level) {
+    const wrap = document.getElementById('options-' + level);
+    const idx = wrap.children.length;
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2 mb-2';
+    div.innerHTML = `
+      <input type="radio" name="correct-${level}" value="${idx}" class="accent-pink-500"/>
+      <input type="text" value="" data-option-idx="${idx}" id="opt-${level}-${idx}"
+        class="flex-1 border-2 border-pink-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-pink-400" placeholder="ตัวเลือกใหม่..."/>
+    `;
+    wrap.appendChild(div);
   }
 
-  function playerRowsHtml(players) {
-    if (!players.length) return '<tr><td class="text-gray-400 text-sm py-2" colspan="4">ไม่มีผู้เล่น</td></tr>';
-    return players.map(p => `
-      <tr class="border-t border-pink-50">
-        <td class="py-1.5 pr-3">${p.avatar} ${escapeHtml(p.name)}</td>
-        <td class="py-1.5 pr-3">${p.finished ? `🏁 อันดับ ${p.finishRank ?? '-'}` : `ด่าน ${p.position + 1}/40`}</td>
-        <td class="py-1.5 pr-3 text-gray-400 text-xs">${p.id.slice(0, 8)}</td>
-      </tr>`).join('');
-  }
+  async function saveLevel(level) {
+    const question = document.getElementById(`question-${level}`).value.trim();
+    const explanation = document.getElementById(`explanation-${level}`).value.trim();
+    const optionInputs = document.querySelectorAll(`#options-${level} input[type="text"]`);
+    const options = Array.from(optionInputs).map(inp => inp.value.trim());
+    const correctRadio = document.querySelector(`input[name="correct-${level}"]:checked`);
+    const correctIndex = correctRadio ? Number(correctRadio.value) : 0;
 
-  function renderSnapshot(data) {
-    document.getElementById('stat-total-players').textContent = data.totalPlayers;
-    document.getElementById('stat-total-rooms').textContent = data.totalRooms;
-    document.getElementById('stat-multi-players').textContent = data.multiPlayers;
-    document.getElementById('stat-solo-players').textContent = data.soloPlayers;
+    const statusEl = document.getElementById(`save-status-${level}`);
+    statusEl.classList.remove('hidden');
+    statusEl.className = 'text-xs text-gray-400';
+    statusEl.textContent = 'กำลังบันทึก...';
 
-    const pr = data.publicRoom;
-    const summaryEl = document.getElementById('public-room-summary');
-    const tableWrap = document.getElementById('public-room-table');
-    if (!pr) {
-      summaryEl.textContent = 'ยังไม่มีห้องแข่งกลางที่ใช้งานอยู่';
-      tableWrap.innerHTML = '<p class="text-gray-400 text-sm">ยังไม่มีห้องแข่งกลางที่ใช้งานอยู่</p>';
-    } else {
-      summaryEl.innerHTML = `ผู้เล่น ${pr.playerCount}/${pr.maxPlayers} · ${pr.gameEnded ? 'จบเกมแล้ว' : 'กำลังเล่น'} · ผู้เข้าเส้นชัย ${pr.winners.length}/5`;
-      tableWrap.innerHTML = `
-        <table class="w-full text-sm text-left">
-          <thead><tr class="text-gray-400 text-xs"><th class="pb-2">ผู้เล่น</th><th class="pb-2">สถานะ</th><th class="pb-2">Socket ID</th></tr></thead>
-          <tbody>${playerRowsHtml(pr.players)}</tbody>
-        </table>`;
+    try {
+      const res = await fetch(`/api/admin/levels/${level}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-admin-passcode': adminPasscode },
+        body: JSON.stringify({ question, options, correctIndex, explanation })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'บันทึกไม่สำเร็จ');
+
+      statusEl.className = 'text-xs text-green-600';
+      statusEl.textContent = '✅ บันทึกแล้ว';
+      const idx = cmsLevels.findIndex(l => l.level === level);
+      if (idx !== -1) cmsLevels[idx] = { ...cmsLevels[idx], question, options, correctIndex, explanation };
+      setTimeout(() => statusEl.classList.add('hidden'), 2500);
+    } catch (err) {
+      statusEl.className = 'text-xs text-red-500';
+      statusEl.textContent = '❌ ' + err.message;
     }
-
-    document.getElementById('solo-room-count').textContent = data.soloRooms.length;
-    const soloWrap = document.getElementById('solo-rooms-table');
-    if (!data.soloRooms.length) {
-      soloWrap.innerHTML = '<p class="text-gray-400 text-sm">ไม่มีห้องเล่นคนเดียวที่ใช้งานอยู่</p>';
-    } else {
-      soloWrap.innerHTML = `
-        <table class="w-full text-sm text-left">
-          <thead><tr class="text-gray-400 text-xs"><th class="pb-2">ผู้เล่น</th><th class="pb-2">สถานะ</th><th class="pb-2">Socket ID</th></tr></thead>
-          <tbody>${data.soloRooms.map(r => playerRowsHtml(r.players)).join('')}</tbody>
-        </table>`;
-    }
   }
 
-  if (location.search.includes('key=')) {
-    history.replaceState({}, '', location.pathname);
+  // ---------------- Tab 4: System Settings ----------------
+  function saveMaxPlayers() {
+    const value = Number(document.getElementById('max-players-input').value);
+    socket.emit('adminSetMaxPlayers', { value });
+    const status = document.getElementById('max-players-status');
+    status.classList.remove('hidden');
+    setTimeout(() => status.classList.add('hidden'), 2500);
   }
-  checkSession();
+
+  function toggleMaintenanceMode() {
+    const track = document.getElementById('maintenance-toggle');
+    const currentlyOn = track.classList.contains('on');
+    socket.emit('adminSetMaintenanceMode', { enabled: !currentlyOn });
+  }
+
+  function setMaintenanceUI(enabled) {
+    const track = document.getElementById('maintenance-toggle');
+    const label = document.getElementById('maintenance-label');
+    track.classList.toggle('on', enabled);
+    track.classList.toggle('off', !enabled);
+    label.textContent = enabled ? 'เปิดอยู่ (ผู้เล่นใหม่จะเข้าเกมไม่ได้)' : 'ปิดอยู่ (ผู้เล่นเข้าเกมได้ตามปกติ)';
+  }
+
+  setInterval(() => { if (document.getElementById('dashboard-screen').classList.contains('active')) requestSnapshot(); }, 15000);
 </script>
+
 </body>
 </html>
