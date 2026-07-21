@@ -652,18 +652,32 @@
     if (myMode === 'multi') showToast(`${info.avatar} ${info.name} เข้าเส้นชัยเป็นอันดับที่ ${info.rank}! 🎉`);
   });
 
-  function showToast(text) {
+  function showToast(text, variant) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
-    toast.className = 'fade-in bg-white border-2 border-pink-300 shadow-lg rounded-2xl px-4 py-2 text-sm text-pink-600 font-medium max-w-xs';
+    const styles = variant === 'announcement'
+      ? 'bg-amber-50 border-2 border-amber-300 text-amber-700'
+      : 'bg-white border-2 border-pink-300 text-pink-600';
+    toast.className = `fade-in ${styles} shadow-lg rounded-2xl px-4 py-2 text-sm font-medium max-w-xs`;
     toast.textContent = text;
     container.appendChild(toast);
     setTimeout(() => {
       toast.style.transition = 'opacity 0.5s ease';
       toast.style.opacity = '0';
       setTimeout(() => toast.remove(), 500);
-    }, 3500);
+    }, variant === 'announcement' ? 6000 : 3500);
   }
+
+  // Admin broadcast announcement (Live Management tab).
+  socket.on('globalAnnouncement', (data) => {
+    showToast(`📢 ประกาศจากทีมงาน: ${data.message}`, 'announcement');
+  });
+
+  // Admin force-kicked this player (Live Management tab).
+  socket.on('kicked', (data) => {
+    alert(data.message || 'คุณถูกนำออกจากเกมโดยผู้ดูแลระบบ');
+    window.location.reload();
+  });
 
   socket.on('gameOver', (data) => {
     document.getElementById('quiz-modal').classList.remove('active');
