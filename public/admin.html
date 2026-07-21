@@ -94,30 +94,54 @@
 
   <!-- ============== TAB 1: ANALYTICS & OVERVIEW ============== -->
   <div id="tab-analytics" class="tab-panel active fade-in">
+
+    <!-- Date Filter Bar -->
+    <div class="card p-4 mb-5">
+      <h3 class="font-semibold text-sm text-gray-700 mb-3">📅 กรองข้อมูลตามช่วงเวลา</h3>
+      <div class="flex flex-wrap items-end gap-3 mb-3">
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">วันที่เริ่มต้น</label>
+          <input id="filter-start-date" type="date" class="border-2 border-pink-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-pink-400"/>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">วันที่สิ้นสุด</label>
+          <input id="filter-end-date" type="date" class="border-2 border-pink-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-pink-400"/>
+        </div>
+        <button onclick="applyDateFilter()" class="btn-press bg-pink-500 hover:bg-pink-600 text-white text-sm font-semibold px-5 py-2 rounded-full transition-colors">🔍 ค้นหา / กรองข้อมูล</button>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="quickFilter('today')" class="quick-filter-btn btn-press bg-pink-50 hover:bg-pink-100 text-pink-600 text-xs font-medium px-4 py-1.5 rounded-full transition-colors">วันนี้</button>
+        <button onclick="quickFilter('last7')" class="quick-filter-btn btn-press bg-pink-50 hover:bg-pink-100 text-pink-600 text-xs font-medium px-4 py-1.5 rounded-full transition-colors">7 วันล่าสุด</button>
+        <button onclick="quickFilter('thisMonth')" class="quick-filter-btn btn-press bg-pink-50 hover:bg-pink-100 text-pink-600 text-xs font-medium px-4 py-1.5 rounded-full transition-colors">เดือนนี้</button>
+        <button onclick="quickFilter('all')" class="quick-filter-btn btn-press bg-pink-500 text-white text-xs font-medium px-4 py-1.5 rounded-full transition-colors" data-active="true">ทั้งหมด</button>
+      </div>
+      <p class="text-xs text-gray-400 mt-3">ช่วงเวลาที่แสดงผล: <span id="active-range-label" class="font-medium text-gray-600">ทั้งหมด</span> • <span id="stats-loading-indicator" class="hidden text-pink-400">กำลังโหลด...</span></p>
+    </div>
+
     <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
       <div class="card p-4">
         <div class="text-2xl font-bold text-pink-600" id="stat-online">0</div>
-        <div class="text-xs text-gray-500">ผู้เล่นออนไลน์ทั้งหมด</div>
+        <div class="text-xs text-gray-500">ผู้เล่นทั้งหมดในช่วงเวลา</div>
       </div>
       <div class="card p-4">
         <div class="text-2xl font-bold text-pink-600" id="stat-rooms">0</div>
-        <div class="text-xs text-gray-500">ห้องที่ใช้งานอยู่ (Active Rooms)</div>
+        <div class="text-xs text-gray-500">ห้องที่ใช้งานอยู่ตอนนี้ <span class="text-[10px] text-green-500 font-semibold">● LIVE</span></div>
       </div>
       <div class="card p-4">
         <div class="text-2xl font-bold text-pink-600" id="stat-completed">0</div>
-        <div class="text-xs text-gray-500">เกมที่เล่นจบทั้งหมด (สะสม)</div>
+        <div class="text-xs text-gray-500">เกมที่เล่นจบสะสมในช่วงเวลา</div>
       </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
       <div class="card p-4">
-        <h3 class="font-semibold text-sm text-gray-700 mb-3">📈 ผู้เล่นออนไลน์ตามเวลา (Players Over Time)</h3>
+        <h3 class="font-semibold text-sm text-gray-700 mb-3">📈 กราฟผู้เล่นตามช่วงเวลา (Players Over Time)</h3>
         <canvas id="online-chart" height="180"></canvas>
       </div>
 
       <div class="card p-4">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="font-semibold text-sm text-gray-700">🔥 ด่านที่ยากที่สุด (Toughest Questions Top 3)</h3>
+          <h3 class="font-semibold text-sm text-gray-700">🔥 ด่านที่ยากที่สุด ตามช่วงเวลา (Toughest Questions Top 3)</h3>
         </div>
         <table>
           <thead><tr><th>อันดับ</th><th>ด่าน</th><th>หมวด</th><th>% ตอบผิด</th></tr></thead>
@@ -125,13 +149,13 @@
             <tr><td colspan="4" class="text-gray-400 italic text-center py-4">ยังไม่มีข้อมูลเพียงพอ</td></tr>
           </tbody>
         </table>
-        <p class="text-xs text-gray-400 mt-3">คำนวณจากอัตราการตอบผิดจริงของผู้เล่นทุกคนที่เคยตอบด่านนั้น</p>
+        <p class="text-xs text-gray-400 mt-3">คำนวณจากอัตราการตอบผิดจริงในช่วงเวลาที่เลือกเท่านั้น</p>
       </div>
     </div>
 
     <div class="card p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold text-sm text-gray-700">📋 สถิติครบทุกด่าน</h3>
+        <h3 class="font-semibold text-sm text-gray-700">📋 สถิติครบทุกด่าน (ตามช่วงเวลาที่เลือก)</h3>
         <button onclick="exportLevelStatsCSV()" class="btn-press bg-pink-500 hover:bg-pink-600 text-white text-xs font-semibold px-4 py-2 rounded-full transition-colors">⬇️ Export to CSV</button>
       </div>
       <div class="scroll-box">
@@ -232,6 +256,7 @@
       document.getElementById('login-screen').classList.remove('active');
       document.getElementById('dashboard-screen').classList.add('active');
       loadCmsLevels();
+      quickFilter('all'); // default Tab 1 view
     } else {
       const err = document.getElementById('login-error');
       err.textContent = res.message;
@@ -246,7 +271,12 @@
     document.querySelector(`.tab-btn[data-tab="${tabId}"]`).classList.add('active');
   }
 
-  function requestSnapshot() { socket.emit('adminRequestSnapshot'); }
+  function requestSnapshot() {
+    socket.emit('adminRequestSnapshot');
+    const start = document.getElementById('filter-start-date').value;
+    const end = document.getElementById('filter-end-date').value;
+    fetchHistoricalStats(start, end);
+  }
 
   function escapeHtml(str) {
     const div = document.createElement('div');
@@ -254,18 +284,13 @@
     return div.innerHTML;
   }
 
-  // ---------------- Live snapshot handling ----------------
+  // ---------------- Live snapshot handling (Active Rooms + Tabs 2/4 only) ----------------
   socket.on('adminUpdate', (snapshot) => {
     latestSnapshot = snapshot;
     document.getElementById('last-updated').textContent = new Date().toLocaleTimeString('th-TH');
 
-    // Tab 1
-    document.getElementById('stat-online').textContent = snapshot.stats.currentOnline;
+    // Tab 1 — only "Active Rooms" is live; the rest is date-filter driven (see fetchHistoricalStats).
     document.getElementById('stat-rooms').textContent = snapshot.stats.activeRoomCount;
-    document.getElementById('stat-completed').textContent = snapshot.stats.totalFinishes;
-    renderToughest(snapshot.toughestQuestions);
-    renderFullLevelStats(snapshot.levelStats);
-    renderChart(snapshot.onlineHistory);
 
     // Tab 2
     document.getElementById('live-player-count').textContent = snapshot.allPlayers.length;
@@ -280,11 +305,101 @@
   document.getElementById('max-players-input').addEventListener('focus', () => maxPlayersFocused = true);
   document.getElementById('max-players-input').addEventListener('blur', () => maxPlayersFocused = false);
 
-  // ---------------- Tab 1: Analytics ----------------
+  // ---------------- Tab 1: Analytics (historical, date-filter driven) ----------------
+  let latestHistoricalStats = null;
+
+  function todayISO(offsetDays) {
+    const d = new Date();
+    d.setDate(d.getDate() + (offsetDays || 0));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function setActiveQuickButton(labelText) {
+    document.querySelectorAll('.quick-filter-btn').forEach(b => {
+      b.classList.remove('bg-pink-500', 'text-white');
+      b.classList.add('bg-pink-50', 'text-pink-600');
+      b.removeAttribute('data-active');
+    });
+    document.getElementById('active-range-label').textContent = labelText;
+  }
+
+  function quickFilter(type) {
+    const startInput = document.getElementById('filter-start-date');
+    const endInput = document.getElementById('filter-end-date');
+
+    if (type === 'today') {
+      startInput.value = todayISO(0);
+      endInput.value = todayISO(0);
+      setActiveQuickButton('วันนี้');
+    } else if (type === 'last7') {
+      startInput.value = todayISO(-6);
+      endInput.value = todayISO(0);
+      setActiveQuickButton('7 วันล่าสุด');
+    } else if (type === 'thisMonth') {
+      const now = new Date();
+      const first = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)).toISOString().slice(0, 10);
+      startInput.value = first;
+      endInput.value = todayISO(0);
+      setActiveQuickButton('เดือนนี้');
+    } else { // 'all'
+      startInput.value = '';
+      endInput.value = '';
+      setActiveQuickButton('ทั้งหมด');
+    }
+
+    // highlight the clicked quick button
+    const btnMap = { today: 0, last7: 1, thisMonth: 2, all: 3 };
+    const btns = document.querySelectorAll('.quick-filter-btn');
+    const idx = btnMap[type];
+    if (btns[idx]) {
+      btns[idx].classList.remove('bg-pink-50', 'text-pink-600');
+      btns[idx].classList.add('bg-pink-500', 'text-white');
+    }
+
+    fetchHistoricalStats(startInput.value, endInput.value);
+  }
+
+  function applyDateFilter() {
+    const start = document.getElementById('filter-start-date').value;
+    const end = document.getElementById('filter-end-date').value;
+    if (start && end && start > end) {
+      alert('วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด');
+      return;
+    }
+    setActiveQuickButton(start || end ? `${start || '…'} ถึง ${end || '…'}` : 'ทั้งหมด');
+    fetchHistoricalStats(start, end);
+  }
+
+  async function fetchHistoricalStats(startDate, endDate) {
+    const indicator = document.getElementById('stats-loading-indicator');
+    indicator.classList.remove('hidden');
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      const res = await fetch(`/api/admin/stats?${params.toString()}`, {
+        headers: { 'x-admin-passcode': adminPasscode }
+      });
+      if (!res.ok) throw new Error('โหลดสถิติไม่สำเร็จ');
+      const data = await res.json();
+      latestHistoricalStats = data;
+
+      document.getElementById('stat-online').textContent = data.totalPlayers;
+      document.getElementById('stat-completed').textContent = data.totalCompleted;
+      renderToughest(data.toughestQuestions);
+      renderFullLevelStats(data.levelStats);
+      renderChart(data.timeSeries);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      indicator.classList.add('hidden');
+    }
+  }
+
   function renderToughest(list) {
     const body = document.getElementById('toughest-body');
     if (!list || list.length === 0) {
-      body.innerHTML = '<tr><td colspan="4" class="text-gray-400 italic text-center py-4">ยังไม่มีข้อมูลเพียงพอ</td></tr>';
+      body.innerHTML = '<tr><td colspan="4" class="text-gray-400 italic text-center py-4">ยังไม่มีข้อมูลเพียงพอในช่วงเวลานี้</td></tr>';
       return;
     }
     const medals = ['🥇','🥈','🥉'];
@@ -313,10 +428,10 @@
     `).join('');
   }
 
-  function renderChart(history) {
+  function renderChart(timeSeries) {
     const ctx = document.getElementById('online-chart');
-    const labels = (history || []).map(h => new Date(h.t).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
-    const data = (history || []).map(h => h.count);
+    const labels = (timeSeries || []).map(p => p.label);
+    const data = (timeSeries || []).map(p => p.count);
 
     if (!onlineChart) {
       onlineChart = new Chart(ctx, {
@@ -324,7 +439,7 @@
         data: {
           labels,
           datasets: [{
-            label: 'ผู้เล่นออนไลน์',
+            label: 'ผู้เล่นที่เข้าร่วม',
             data,
             borderColor: '#ec4899',
             backgroundColor: 'rgba(236,72,153,0.1)',
@@ -347,15 +462,24 @@
   }
 
   function exportLevelStatsCSV() {
-    if (!latestSnapshot) return;
+    if (!latestHistoricalStats) return;
+    const range = latestHistoricalStats.range;
+    const rangeLabel = range.startDate || range.endDate ? `${range.startDate || 'start'}_to_${range.endDate || 'end'}` : 'all-time';
+
     const rows = [['Level','Category','Difficulty','Correct','Wrong','Attempts','WrongRate%']];
-    latestSnapshot.levelStats.forEach(l => rows.push([l.level, l.category, l.difficulty, l.correct, l.wrong, l.attempts, l.wrongRate]));
+    latestHistoricalStats.levelStats.forEach(l => rows.push([l.level, l.category, l.difficulty, l.correct, l.wrong, l.attempts, l.wrongRate]));
+    rows.push([]);
+    rows.push(['Summary']);
+    rows.push(['Date range', range.startDate || 'all', range.endDate || 'all']);
+    rows.push(['Total players in range', latestHistoricalStats.totalPlayers]);
+    rows.push(['Total completed games in range', latestHistoricalStats.totalCompleted]);
+
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `level-stats-${Date.now()}.csv`;
+    a.download = `level-stats-${rangeLabel}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
