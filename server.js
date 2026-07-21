@@ -45,8 +45,22 @@ const SERVER_START_TIME = Date.now();
 // survive a server restart without needing a real database.
 const LEVEL_OVERRIDES_PATH = path.join(__dirname, "data", "level-overrides.json");
 
+// Persistent, timestamped event log (join / answer / finish) used to power
+// historical analytics with date filtering on the admin Analytics tab.
+// NOTE on hosting: this relies on the local filesystem. On most hosts
+// (including Render's free tier without a persistent disk add-on) a fresh
+// deploy can wipe local files, though ordinary restarts of the same instance
+// usually preserve them. For guaranteed durability across redeploys, point
+// GAME_STATS_HISTORY_PATH at a mounted persistent disk, or swap this file
+// for a small database later — the read/write logic here is isolated in one
+// place (loadEventLog / persistEventLog) so that swap is straightforward.
+const GAME_STATS_HISTORY_PATH =
+  process.env.GAME_STATS_HISTORY_PATH || path.join(__dirname, "data", "game_stats_history.json");
+const MAX_LOGGED_EVENTS = 50000; // safety cap so the file can't grow unbounded
+
 // Rolling time-series of online-player counts, sampled periodically, used to
-// power the "Players over time" chart on the admin Analytics tab.
+// power the small "live" indicator (separate from the historical chart,
+// which is driven by GAME_STATS_HISTORY_PATH + the date filter instead).
 const onlineHistory = [];
 
 // Lifetime aggregate stats (reset only when the server process restarts).
@@ -600,6 +614,167 @@ app.put("/api/admin/levels/:level", requireAdminPasscode, (req, res) => {
   res.json({ success: true, level: LEVELS[idx] });
 });
 
+// ---------------------------------------------------------------------------
+// Persistent event log for historical analytics (Tab 1 date filtering).
+// Each event: { type: "join"|"answer"|"finish", timestamp: ISOString, mode, socketId, level?, correct? }
+// ---------------------------------------------------------------------------
+let eventLog = [];
+
+function loadEventLog() {
+  try {
+    if (fs.existsSync(GAME_STATS_HISTORY_PATH)) {
+      const raw = fs.readFileSync(GAME_STATS_HISTORY_PATH, "utf8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        eventLog = parsed;
+        console.log(`📊 Loaded ${eventLog.length} historical event(s) from ${GAME_STATS_HISTORY_PATH}`);
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load game stats history:", err.message);
+    eventLog = [];
+  }
+}
+loadEventLog();
+
+function persistEventLog() {
+  try {
+    const dir = path.dirname(GAME_STATS_HISTORY_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(GAME_STATS_HISTORY_PATH, JSON.stringify(eventLog), "utf8");
+  } catch (err) {
+    console.error("Failed to persist game stats history:", err.message);
+  }
+}
+
+function logEvent(event) {
+  eventLog.push(event);
+  if (eventLog.length > MAX_LOGGED_EVENTS) {
+    eventLog = eventLog.slice(eventLog.length - MAX_LOGGED_EVENTS);
+  }
+  persistEventLog();
+}
+
+// Inclusive day-range filter helper. startDate/endDate are "YYYY-MM-DD" or
+// falsy (meaning "no bound" — used for the "All Time" quick filter).
+function filterEventsByRange(events, startDate, endDate) {
+  const startMs = startDate ? new Date(startDate + "T00:00:00.000Z").getTime() : -Infinity;
+  const endMs = endDate ? new Date(endDate + "T23:59:59.999Z").getTime() : Infinity;
+  return events.filter((e) => {
+    const t = new Date(e.timestamp).getTime();
+    return t >= startMs && t <= endMs;
+  });
+}
+
+// Builds hourly buckets (single-day ranges) or daily buckets (longer ranges)
+// of "join" events for the "players over time" chart.
+function buildTimeSeries(events, startDate, endDate) {
+  const joinEvents = events.filter((e) => e.type === "join");
+
+  const hasRange = !!(startDate && endDate);
+  const start = hasRange ? new Date(startDate + "T00:00:00.000Z") : null;
+  const end = hasRange ? new Date(endDate + "T23:59:59.999Z") : null;
+  const singleDay = hasRange && startDate === endDate;
+
+  if (singleDay) {
+    const buckets = Array.from({ length: 24 }, (_, h) => ({ label: `${String(h).padStart(2, "0")}:00`, count: 0 }));
+    joinEvents.forEach((e) => {
+      const d = new Date(e.timestamp);
+      if (d >= start && d <= end) buckets[d.getUTCHours()].count++;
+    });
+    return buckets;
+  }
+
+  // Daily buckets. If no explicit range (All Time), derive from the data itself.
+  let rangeStart = start;
+  let rangeEnd = end;
+  if (!hasRange) {
+    if (joinEvents.length === 0) return [];
+    const timestamps = joinEvents.map((e) => new Date(e.timestamp).getTime());
+    rangeStart = new Date(Math.min(...timestamps));
+    rangeEnd = new Date(Math.max(...timestamps));
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const bucketsMap = {};
+  const cursor = new Date(Date.UTC(rangeStart.getUTCFullYear(), rangeStart.getUTCMonth(), rangeStart.getUTCDate()));
+  const lastDay = new Date(Date.UTC(rangeEnd.getUTCFullYear(), rangeEnd.getUTCMonth(), rangeEnd.getUTCDate()));
+  const dayList = [];
+  // cap at 366 days to avoid pathological ranges creating huge arrays
+  let guard = 0;
+  while (cursor.getTime() <= lastDay.getTime() && guard < 366) {
+    const key = cursor.toISOString().slice(0, 10);
+    dayList.push(key);
+    bucketsMap[key] = 0;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    guard++;
+  }
+
+  joinEvents.forEach((e) => {
+    const key = new Date(e.timestamp).toISOString().slice(0, 10);
+    if (bucketsMap[key] !== undefined) bucketsMap[key]++;
+  });
+
+  return dayList.map((key) => ({ label: key, count: bucketsMap[key] }));
+}
+
+// GET historical analytics for a given date range (or all time if omitted).
+app.get("/api/admin/stats", requireAdminPasscode, (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  if ((startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) || (endDate && !/^\d{4}-\d{2}-\d{2}$/.test(endDate))) {
+    return res.status(400).json({ error: "invalid_date", message: "รูปแบบวันที่ต้องเป็น YYYY-MM-DD" });
+  }
+
+  const filtered = filterEventsByRange(eventLog, startDate, endDate);
+
+  const totalPlayers = filtered.filter((e) => e.type === "join").length;
+  const totalCompleted = filtered.filter((e) => e.type === "finish").length;
+
+  const perLevel = {};
+  for (let i = 1; i <= TOTAL_LEVELS; i++) perLevel[i] = { correct: 0, wrong: 0 };
+  filtered
+    .filter((e) => e.type === "answer")
+    .forEach((e) => {
+      if (!perLevel[e.level]) return;
+      if (e.correct) perLevel[e.level].correct++;
+      else perLevel[e.level].wrong++;
+    });
+
+  const levelStats = [];
+  for (let i = 1; i <= TOTAL_LEVELS; i++) {
+    const s = perLevel[i];
+    const level = LEVELS[i - 1];
+    const attempts = s.correct + s.wrong;
+    levelStats.push({
+      level: i,
+      category: level.category,
+      difficulty: level.difficulty,
+      correct: s.correct,
+      wrong: s.wrong,
+      attempts,
+      wrongRate: attempts > 0 ? Math.round((s.wrong / attempts) * 100) : 0
+    });
+  }
+
+  const toughestQuestions = [...levelStats]
+    .filter((l) => l.attempts > 0)
+    .sort((a, b) => b.wrongRate - a.wrongRate || b.attempts - a.attempts)
+    .slice(0, 3);
+
+  const timeSeries = buildTimeSeries(filtered, startDate || null, endDate || null);
+
+  res.json({
+    range: { startDate: startDate || null, endDate: endDate || null },
+    totalPlayers,
+    totalCompleted,
+    levelStats,
+    toughestQuestions,
+    timeSeries,
+    totalEventsInRange: filtered.length
+  });
+});
+
 const AVATAR_POOL = [
   "🐱", "🐶", "🐰", "🦊", "🐼", "🐨", "🐯", "🦁", "🐸", "🐵",
   "🐷", "🐮", "🐔", "🐧", "🦄", "🐙", "🐢", "🦋", "🐝", "🦉",
@@ -860,6 +1035,13 @@ io.on("connection", (socket) => {
     if (mode === "solo") globalStats.soloJoins++;
     else globalStats.multiJoins++;
 
+    logEvent({
+      type: "join",
+      timestamp: new Date().toISOString(),
+      mode: room.isPublic ? "multi" : "solo",
+      socketId: socket.id
+    });
+
     socket.emit("joined", {
       self: player,
       levels: LEVELS_PUBLIC,
@@ -891,6 +1073,16 @@ io.on("connection", (socket) => {
     if (isCorrect) globalStats.levelStats[levelNumber].correct++;
     else globalStats.levelStats[levelNumber].wrong++;
 
+    const eventMode = room.isPublic ? "multi" : "solo";
+    logEvent({
+      type: "answer",
+      timestamp: new Date().toISOString(),
+      mode: eventMode,
+      socketId: socket.id,
+      level: levelNumber,
+      correct: isCorrect
+    });
+
     if (isCorrect) {
       player.position += 1;
 
@@ -904,6 +1096,13 @@ io.on("connection", (socket) => {
         globalStats.totalFinishes++;
         if (room.isPublic) globalStats.multiFinishes++;
         else globalStats.soloFinishes++;
+
+        logEvent({
+          type: "finish",
+          timestamp: new Date().toISOString(),
+          mode: eventMode,
+          socketId: socket.id
+        });
 
         if (room.winners.length < MAX_WINNERS) {
           player.finishRank = room.winners.length + 1;
